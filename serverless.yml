@@ -1,0 +1,16 @@
+service: project-management-backend
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  region: ${env:AWS_REGION}
+  stage: ${opt:stage, 'dev'}
+
+functions:
+  api:
+    handler: src/handlers/api.handler    # change to your handler path
+    events:
+      - httpApi:
+          path: /
+          method: get
+# add other functions/paths here
