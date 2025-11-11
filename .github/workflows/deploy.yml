@@ -22,13 +22,6 @@ jobs:
       - name: Install dependencies
         run: npm install
       
-      - name: Debug AWS Secrets
-        run: |
-          echo "Checking AWS configuration..."
-          echo "Region value: '${{ secrets.AWS_REGION }}'"
-          echo "Access Key ID exists: ${{ secrets.AWS_ACCESS_KEY_ID != '' }}"
-          echo "Secret Key exists: ${{ secrets.AWS_SECRET_ACCESS_KEY != '' }}"
-      
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -40,10 +33,12 @@ jobs:
         run: |
           echo "Testing AWS connection..."
           aws sts get-caller-identity
-          echo "AWS Region: ap-south-1"
       
-      - name: Install Serverless Framework
-        run: npm install -g serverless
+      - name: Install Serverless Framework V3
+        run: npm install -g serverless@3
+      
+      - name: Verify Serverless Version
+        run: serverless --version
       
       - name: Deploy with Serverless
         run: serverless deploy --stage production --region ap-south-1 --verbose
