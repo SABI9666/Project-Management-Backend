@@ -1,16 +1,33 @@
-service: project-management-backend
+service: eb-tracker-backend
 
 provider:
   name: aws
   runtime: nodejs18.x
-  region: ${env:AWS_REGION}
+  region: ap-south-1
   stage: ${opt:stage, 'dev'}
+  environment:
+    NODE_ENV: production
 
 functions:
   api:
-    handler: src/handlers/api.handler    # change to your handler path
+    handler: src/index.handler
     events:
-      - httpApi:
-          path: /
-          method: get
-# add other functions/paths here
+      - http:
+          path: /{proxy+}
+          method: ANY
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - X-Amz-Date
+              - Authorization
+              - X-Api-Key
+              - X-Amz-Security-Token
+            allowCredentials: false
+
+plugins:
+  - serverless-offline
+
+custom:
+  serverless-offline:
+    httpPort: 3001
