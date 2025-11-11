@@ -29,16 +29,8 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-1
       
-      - name: Verify AWS Connection
-        run: |
-          echo "Testing AWS connection..."
-          aws sts get-caller-identity
-      
       - name: Install Serverless Framework V3
         run: npm install -g serverless@3
-      
-      - name: Verify Serverless Version
-        run: serverless --version
       
       - name: Deploy with Serverless
         run: serverless deploy --stage production --region ap-south-1 --verbose
