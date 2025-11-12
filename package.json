@@ -4,7 +4,7 @@
   "description": "EB-Tracker Project Management Backend",
   "main": "src/index.js",
   "scripts": {
-    "start": "serverless offline",
+    "start": "node src/server.js",
     "deploy": "serverless deploy",
     "deploy:prod": "serverless deploy --stage production",
     "logs": "serverless logs -f api -t",
@@ -16,7 +16,13 @@
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
     "serverless-http": "^3.2.0",
-    "uuid": "^10.0.0"
+    "uuid": "^10.0.0",
+    
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0",
+    "compression": "^1.7.4",
+    "dotenv": "^16.4.5"
   },
   "devDependencies": {
     "serverless": "^3.38.0",
