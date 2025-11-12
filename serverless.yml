@@ -36,7 +36,7 @@ provider:
     COGNITO_CLIENT_ID: !Ref CognitoUserPoolClient
     
     # JWT
-    JWT_SECRET: ${ssm:/eb-tracker/jwt-secret}
+   JWT_SECRET: ${env:JWT_SECRET}
     
     # Email
     FROM_EMAIL: noreply@yourdomain.com
