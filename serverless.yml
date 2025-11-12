@@ -44,7 +44,7 @@ provider:
     FROM_NAME: PMTracker System
     
     # Frontend URL
-    FRONTEND_URL: http://pmtracker-frontend-2024.s3-website.ap-south-1.amazonaws.com
+    FRONTEND_URL: project-management-frontend-seven-ashy.vercel.app
 
   iam:
     role:
