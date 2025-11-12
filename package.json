@@ -1,49 +1,41 @@
 {
-  "name": "ebtracker-backend-aws",
-  "version": "2.0.0",
-  "description": "EBTracker Project Management Backend - AWS Version",
+  "name": "eb-tracker-backend",
+  "version": "1.0.0",
+  "description": "EBTracker Project Management Backend API",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "nodemon src/server.js",
-    "deploy": "serverless deploy --verbose",
-    "deploy:prod": "serverless deploy --stage production --verbose",
-    "remove": "serverless remove",
-    "logs": "serverless logs -f api -t",
+    "start": "serverless offline start",
+    "deploy": "serverless deploy --stage production --region ap-south-1",
+    "deploy:dev": "serverless deploy --stage dev --region ap-south-1",
+    "remove": "serverless remove --stage production --region ap-south-1",
+    "logs": "serverless logs -f api --stage production --region ap-south-1",
+    "info": "serverless info --stage production --region ap-south-1",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "keywords": [
+    "serverless",
+    "aws",
+    "lambda",
+    "api",
+    "project-management"
+  ],
+  "author": "EDANBROOK",
+  "license": "ISC",
   "dependencies": {
-    "express": "^4.18.2",
+    "aws-sdk": "^2.1490.0",
+    "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
-    "axios": "^1.6.0",
-    "multer": "^1.4.5-lts.1",
-    "uuid": "^9.0.0",
-    "compression": "^1.7.4",
-    "helmet": "^7.0.0",
-    "morgan": "^1.10.0",
-    "dotenv": "^16.3.1",
-    "node-cron": "^3.0.2",
-    "aws-sdk": "^2.1691.0",
-    "multer-s3": "^3.0.1",
+    "express": "^4.18.2",
     "jsonwebtoken": "^9.0.2",
-    "bcryptjs": "^2.4.3"
+    "serverless-http": "^3.2.0",
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1",
     "serverless": "^3.38.0",
     "serverless-offline": "^13.3.0"
   },
   "engines": {
-    "node": "18.x"
-  },
-  "keywords": [
-    "project-management",
-    "workflow",
-    "aws",
-    "dynamodb",
-    "lambda",
-    "ebtracker"
-  ],
-  "author": "EDANBROOK",
-  "license": "MIT"
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
 }
