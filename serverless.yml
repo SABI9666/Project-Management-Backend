@@ -14,33 +14,34 @@ provider:
     STAGE: ${self:provider.stage}
     
     # DynamoDB Tables
-    PROPOSALS_TABLE: ${self:service}-proposals-${self:provider.stage}
-    PROJECTS_TABLE: ${self:service}-projects-${self:provider.stage}
-    FILES_TABLE: ${self:service}-files-${self:provider.stage}
-    TIMESHEETS_TABLE: ${self:service}-timesheets-${self:provider.stage}
-    TIME_REQUESTS_TABLE: ${self:service}-time-requests-${self:provider.stage}
-    DELIVERABLES_TABLE: ${self:service}-deliverables-${self:provider.stage}
-    ACTIVITIES_TABLE: ${self:service}-activities-${self:provider.stage}
-    NOTIFICATIONS_TABLE: ${self:service}-notifications-${self:provider.stage}
-    PAYMENTS_TABLE: ${self:service}-payments-${self:provider.stage}
-    VARIATIONS_TABLE: ${self:service}-variations-${self:provider.stage}
-    INVOICES_TABLE: ${self:service}-invoices-${self:provider.stage}
-    TASKS_TABLE: ${self:service}-tasks-${self:provider.stage}
-    USERS_TABLE: ${self:service}-users-${self:provider.stage}
+    PROPOSALS_TABLE: PMTracker-Proposals
+    PROJECTS_TABLE: PMTracker-Projects
+    FILES_TABLE: PMTracker-Files
+    TIMESHEETS_TABLE: PMTracker-Timesheets
+    TIME_REQUESTS_TABLE: PMTracker-TimeRequests
+    DELIVERABLES_TABLE: PMTracker-Deliverables
+    ACTIVITIES_TABLE: PMTracker-Activities
+    NOTIFICATIONS_TABLE: PMTrackerNotifications
+    PAYMENTS_TABLE: PMTrackerPayments
+    INVOICES_TABLE: PMTracker-Invoices
+    TASKS_TABLE: PMTracker-Tasks
+    USERS_TABLE: PMTracker-Users
+    SUBMISSIONS_TABLE: PMTracker-Submissions
+    ANALYTICS_TABLE: PMTracker-Analytics
     
-    # S3
-    S3_BUCKET: ${self:service}-files-${self:provider.stage}
+    # S3 Bucket (Sydney - existing bucket)
+    S3_BUCKET: pmtracker-files-2024
     
     # Cognito
-    COGNITO_USER_POOL_ID: !Ref CognitoUserPool
-    COGNITO_CLIENT_ID: !Ref CognitoUserPoolClient
+    COGNITO_USER_POOL_ID: ap-south-1_ydwkta
+    COGNITO_CLIENT_ID: 2MMb8hmRRb
     
-    # JWT
-   JWT_SECRET: ${env:JWT_SECRET}
+    # JWT Secret (REPLACE WITH YOUR GENERATED KEY)
+    JWT_SECRET: "7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d"
     
     # Email
-    FROM_EMAIL: noreply@yourdomain.com
-    FROM_NAME: EBTracker System
+    FROM_EMAIL: noreply@pmtracker.com
+    FROM_NAME: PMTracker System
     
     # Frontend
     FRONTEND_URL: https://your-frontend-url.com
@@ -60,19 +61,21 @@ provider:
             - dynamodb:BatchWriteItem
             - dynamodb:BatchGetItem
           Resource:
-            - arn:aws:dynamodb:${self:provider.region}:*:table/${self:service}-*
-            - arn:aws:dynamodb:${self:provider.region}:*:table/${self:service}-*/index/*
+            - arn:aws:dynamodb:${self:provider.region}:*:table/PMTracker-*
+            - arn:aws:dynamodb:${self:provider.region}:*:table/PMTracker-*/index/*
         
-        # S3 permissions
+        # S3 permissions (Sydney bucket)
         - Effect: Allow
           Action:
             - s3:PutObject
             - s3:GetObject
             - s3:DeleteObject
             - s3:ListBucket
+            - s3:PutBucketCORS
+            - s3:GetBucketCORS
           Resource:
-            - arn:aws:s3:::${self:service}-files-${self:provider.stage}
-            - arn:aws:s3:::${self:service}-files-${self:provider.stage}/*
+            - arn:aws:s3:::pmtracker-files-2024
+            - arn:aws:s3:::pmtracker-files-2024/*
         
         # Cognito permissions
         - Effect: Allow
@@ -84,20 +87,24 @@ provider:
             - cognito-idp:ListUsers
             - cognito-idp:AdminInitiateAuth
             - cognito-idp:AdminSetUserPassword
-          Resource: !GetAtt CognitoUserPool.Arn
+            - cognito-idp:AdminResetUserPassword
+          Resource: arn:aws:cognito-idp:${self:provider.region}:*:userpool/*
         
         # SES permissions for email
         - Effect: Allow
           Action:
             - ses:SendEmail
             - ses:SendRawEmail
+            - ses:VerifyEmailIdentity
           Resource: '*'
         
-        # SSM for secrets
+        # CloudWatch Logs
         - Effect: Allow
           Action:
-            - ssm:GetParameter
-          Resource: arn:aws:ssm:${self:provider.region}:*:parameter/eb-tracker/*
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: arn:aws:logs:${self:provider.region}:*:log-group:/aws/lambda/*
 
 functions:
   api:
@@ -115,6 +122,8 @@ functions:
               - X-Api-Key
               - X-Amz-Security-Token
               - X-Amz-User-Agent
+              - Accept
+              - Cache-Control
             allowCredentials: false
 
 plugins:
@@ -123,392 +132,16 @@ plugins:
 custom:
   serverless-offline:
     httpPort: 3001
+    host: 0.0.0.0
 
-resources:
-  Resources:
-    # Cognito User Pool
-    CognitoUserPool:
-      Type: AWS::Cognito::UserPool
-      Properties:
-        UserPoolName: ${self:service}-user-pool-${self:provider.stage}
-        UsernameAttributes:
-          - email
-        AutoVerifiedAttributes:
-          - email
-        Policies:
-          PasswordPolicy:
-            MinimumLength: 8
-            RequireLowercase: true
-            RequireNumbers: true
-            RequireSymbols: true
-            RequireUppercase: true
-        Schema:
-          - Name: email
-            Required: true
-            Mutable: false
-          - Name: name
-            Required: true
-            Mutable: true
-          - Name: custom:role
-            AttributeDataType: String
-            Mutable: true
-
-    CognitoUserPoolClient:
-      Type: AWS::Cognito::UserPoolClient
-      Properties:
-        ClientName: ${self:service}-client-${self:provider.stage}
-        UserPoolId: !Ref CognitoUserPool
-        GenerateSecret: false
-        ExplicitAuthFlows:
-          - ADMIN_NO_SRP_AUTH
-          - ALLOW_REFRESH_TOKEN_AUTH
-
-    # S3 Bucket
-    FilesBucket:
-      Type: AWS::S3::Bucket
-      Properties:
-        BucketName: ${self:service}-files-${self:provider.stage}
-        CorsConfiguration:
-          CorsRules:
-            - AllowedOrigins:
-                - '*'
-              AllowedMethods:
-                - GET
-                - PUT
-                - POST
-                - DELETE
-                - HEAD
-              AllowedHeaders:
-                - '*'
-              MaxAge: 3000
-
-    # DynamoDB Tables
-    ProposalsTable:
-      Type: AWS::DynamoDB::Table
-      Properties:
-        TableName: ${self:service}-proposals-${self:provider.stage}
-        BillingMode: PAY_PER_REQUEST
-        AttributeDefinitions:
-          - AttributeName: id
-            AttributeType: S
-          - AttributeName: status
-            AttributeType: S
-          - AttributeName: createdAt
-            AttributeType: N
-        KeySchema:
-          - AttributeName: id
-            KeyType: HASH
-        GlobalSecondaryIndexes:
-          - IndexName: status-index
-            KeySchema:
-              - AttributeName: status
-                KeyType: HASH
-              - AttributeName: createdAt
-                KeyType: RANGE
-            Projection:
-              ProjectionType: ALL
-
-    ProjectsTable:
-      Type: AWS::DynamoDB::Table
-      Properties:
-        TableName: ${self:service}-projects-${self:provider.stage}
-        BillingMode: PAY_PER_REQUEST
-        AttributeDefinitions:
-          - AttributeName: id
-            AttributeType: S
-          - AttributeName: status
-            AttributeType: S
-          - AttributeName: designLeadUid
-            AttributeType: S
-        KeySchema:
-          - AttributeName: id
-            KeyType: HASH
-        GlobalSecondaryIndexes:
-          - IndexName: status-index
-            KeySchema:
-              - AttributeName: status
-                KeyType: HASH
-            Projection:
-              ProjectionType: ALL
-          - IndexName: designLeadUid-index
-            KeySchema:
-              - AttributeName: designLeadUid
-                KeyType: HASH
-            Projection:
-              ProjectionType: ALL
-
-    FilesTable:
-      Type: AWS::DynamoDB::Table
-      Properties:
-        TableName: ${self:service}-files-${self:provider.stage}
-        BillingMode: PAY_PER_REQUEST
-        AttributeDefinitions:
-          - AttributeName: id
-            AttributeType: S
-          - AttributeName: projectId
-            AttributeType: S
-        KeySchema:
-          - AttributeName: id
-            KeyType: HASH
-        GlobalSecondaryIndexes:
-          - IndexName: projectId-index
-            KeySchema:
-              - AttributeName: projectId
-                KeyType: HASH
-            Projection:
-              ProjectionType: ALL
-
-    TimesheetsTable:
-      Type: AWS::DynamoDB::Table
-      Properties:
-        TableName: ${self:service}-timesheets-${self:provider.stage}
-        BillingMode: PAY_PER_REQUEST
-        AttributeDefinitions:
-          - AttributeName: id
-            AttributeType: S
-          - AttributeName: userId
-            AttributeType: S
-          - AttributeName: projectId
-            AttributeType: S
-        KeySchema:
-          - AttributeName: id
-            KeyType: HASH
-        GlobalSecondaryIndexes:
-          - IndexName: userId-index
-            KeySchema:
-              - AttributeName: userId
-                KeyType: HASH
-            Projection:
-              ProjectionType: ALL
-          - IndexName: projectId-index
-            KeySchema:
-              - AttributeName: projectId
-                KeyType: HASH
-            Projection:
-              ProjectionType: ALL
-
-    TimeRequestsTable:
-      Type: AWS::DynamoDB::Table
-      Properties:
-        TableName: ${self:service}-time-requests-${self:provider.stage}
-        BillingMode: PAY_PER_REQUEST
-        AttributeDefinitions:
-          - AttributeName: id
-            AttributeType: S
-          - AttributeName: userId
-            AttributeType: S
-        KeySchema:
-          - AttributeName: id
-            KeyType: HASH
-        GlobalSecondaryIndexes:
-          - IndexName: userId-index
-            KeySchema:
-              - AttributeName: userId
-                KeyType: HASH
-            Projection:
-              ProjectionType: ALL
-
-    DeliverablesTable:
-      Type: AWS::DynamoDB::Table
-      Properties:
-        TableName: ${self:service}-deliverables-${self:provider.stage}
-        BillingMode: PAY_PER_REQUEST
-        AttributeDefinitions:
-          - AttributeName: id
-            AttributeType: S
-          - AttributeName: projectId
-            AttributeType: S
-        KeySchema:
-          - AttributeName: id
-            KeyType: HASH
-        GlobalSecondaryIndexes:
-          - IndexName: projectId-index
-            KeySchema:
-              - AttributeName: projectId
-                KeyType: HASH
-            Projection:
-              ProjectionType: ALL
-
-    ActivitiesTable:
-      Type: AWS::DynamoDB::Table
-      Properties:
-        TableName: ${self:service}-activities-${self:provider.stage}
-        BillingMode: PAY_PER_REQUEST
-        AttributeDefinitions:
-          - AttributeName: id
-            AttributeType: S
-          - AttributeName: projectId
-            AttributeType: S
-          - AttributeName: performedByUid
-            AttributeType: S
-        KeySchema:
-          - AttributeName: id
-            KeyType: HASH
-        GlobalSecondaryIndexes:
-          - IndexName: projectId-index
-            KeySchema:
-              - AttributeName: projectId
-                KeyType: HASH
-            Projection:
-              ProjectionType: ALL
-          - IndexName: performedByUid-index
-            KeySchema:
-              - AttributeName: performedByUid
-                KeyType: HASH
-            Projection:
-              ProjectionType: ALL
-
-    NotificationsTable:
-      Type: AWS::DynamoDB::Table
-      Properties:
-        TableName: ${self:service}-notifications-${self:provider.stage}
-        BillingMode: PAY_PER_REQUEST
-        AttributeDefinitions:
-          - AttributeName: id
-            AttributeType: S
-          - AttributeName: userId
-            AttributeType: S
-        KeySchema:
-          - AttributeName: id
-            KeyType: HASH
-        GlobalSecondaryIndexes:
-          - IndexName: userId-index
-            KeySchema:
-              - AttributeName: userId
-                KeyType: HASH
-            Projection:
-              ProjectionType: ALL
-
-    PaymentsTable:
-      Type: AWS::DynamoDB::Table
-      Properties:
-        TableName: ${self:service}-payments-${self:provider.stage}
-        BillingMode: PAY_PER_REQUEST
-        AttributeDefinitions:
-          - AttributeName: id
-            AttributeType: S
-          - AttributeName: projectId
-            AttributeType: S
-        KeySchema:
-          - AttributeName: id
-            KeyType: HASH
-        GlobalSecondaryIndexes:
-          - IndexName: projectId-index
-            KeySchema:
-              - AttributeName: projectId
-                KeyType: HASH
-            Projection:
-              ProjectionType: ALL
-
-    VariationsTable:
-      Type: AWS::DynamoDB::Table
-      Properties:
-        TableName: ${self:service}-variations-${self:provider.stage}
-        BillingMode: PAY_PER_REQUEST
-        AttributeDefinitions:
-          - AttributeName: id
-            AttributeType: S
-          - AttributeName: projectId
-            AttributeType: S
-        KeySchema:
-          - AttributeName: id
-            KeyType: HASH
-        GlobalSecondaryIndexes:
-          - IndexName: projectId-index
-            KeySchema:
-              - AttributeName: projectId
-                KeyType: HASH
-            Projection:
-              ProjectionType: ALL
-
-    InvoicesTable:
-      Type: AWS::DynamoDB::Table
-      Properties:
-        TableName: ${self:service}-invoices-${self:provider.stage}
-        BillingMode: PAY_PER_REQUEST
-        AttributeDefinitions:
-          - AttributeName: id
-            AttributeType: S
-          - AttributeName: projectId
-            AttributeType: S
-        KeySchema:
-          - AttributeName: id
-            KeyType: HASH
-        GlobalSecondaryIndexes:
-          - IndexName: projectId-index
-            KeySchema:
-              - AttributeName: projectId
-                KeyType: HASH
-            Projection:
-              ProjectionType: ALL
-
-    TasksTable:
-      Type: AWS::DynamoDB::Table
-      Properties:
-        TableName: ${self:service}-tasks-${self:provider.stage}
-        BillingMode: PAY_PER_REQUEST
-        AttributeDefinitions:
-          - AttributeName: id
-            AttributeType: S
-          - AttributeName: projectId
-            AttributeType: S
-          - AttributeName: assignedTo
-            AttributeType: S
-        KeySchema:
-          - AttributeName: id
-            KeyType: HASH
-        GlobalSecondaryIndexes:
-          - IndexName: projectId-index
-            KeySchema:
-              - AttributeName: projectId
-                KeyType: HASH
-            Projection:
-              ProjectionType: ALL
-          - IndexName: assignedTo-index
-            KeySchema:
-              - AttributeName: assignedTo
-                KeyType: HASH
-            Projection:
-              ProjectionType: ALL
-
-    UsersTable:
-      Type: AWS::DynamoDB::Table
-      Properties:
-        TableName: ${self:service}-users-${self:provider.stage}
-        BillingMode: PAY_PER_REQUEST
-        AttributeDefinitions:
-          - AttributeName: uid
-            AttributeType: S
-          - AttributeName: email
-            AttributeType: S
-          - AttributeName: role
-            AttributeType: S
-        KeySchema:
-          - AttributeName: uid
-            KeyType: HASH
-        GlobalSecondaryIndexes:
-          - IndexName: email-index
-            KeySchema:
-              - AttributeName: email
-                KeyType: HASH
-            Projection:
-              ProjectionType: ALL
-          - IndexName: role-index
-            KeySchema:
-              - AttributeName: role
-                KeyType: HASH
-            Projection:
-              ProjectionType: ALL
-
-  Outputs:
-    ApiUrl:
-      Description: API Gateway URL
-      Value: !Sub https://${ApiGatewayRestApi}.execute-api.${self:provider.region}.amazonaws.com/${self:provider.stage}
-    
-    CognitoUserPoolId:
-      Description: Cognito User Pool ID
-      Value: !Ref CognitoUserPool
-    
-    CognitoClientId:
-      Description: Cognito Client ID
-      Value: !Ref CognitoUserPoolClient
+package:
+  patterns:
+    - '!node_modules/**'
+    - '!.git/**'
+    - '!.env*'
+    - '!README.md'
+    - '!.gitignore'
+    - 'node_modules/aws-sdk/**'
+    - 'node_modules/uuid/**'
+    - 'node_modules/jsonwebtoken/**'
+    - 'node_modules/bcryptjs/**'
