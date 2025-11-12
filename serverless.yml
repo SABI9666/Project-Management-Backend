@@ -110,43 +110,16 @@ provider:
 
 functions:
   api:
-    handler: src/index.handler
+    # This handler points to 'src/index.js', which will load 'src/server.js'
+    handler: src/index.handler 
     events:
-      # Root path with CORS
       - http:
           path: /
           method: ANY
-          cors:
-            origin: '*'
-            headers:
-              - Content-Type
-              - X-Amz-Date
-              - Authorization
-              - X-Api-Key
-              - X-Amz-Security-Token
-              - X-Amz-User-Agent
-              - Accept
-              - Cache-Control
-              - X-Requested-With
-            allowCredentials: false
       
-      # All proxy paths with CORS
       - http:
           path: /{proxy+}
           method: ANY
-          cors:
-            origin: '*'
-            headers:
-              - Content-Type
-              - X-Amz-Date
-              - Authorization
-              - X-Api-Key
-              - X-Amz-Security-Token
-              - X-Amz-User-Agent
-              - Accept
-              - Cache-Control
-              - X-Requested-With
-            allowCredentials: false
 
 plugins:
   - serverless-offline
@@ -167,9 +140,3 @@ package:
     - 'node_modules/uuid/**'
     - 'node_modules/jsonwebtoken/**'
     - 'node_modules/bcryptjs/**'
-
-
-
-
-
-
