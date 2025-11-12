@@ -1,8 +1,12 @@
 // src/middleware/auth.js
-const { verifyToken } = require('../utils/cognito');
+const { verifyToken: verifyJwt } = require('../utils/cognito'); // Import the JWT verifier
+const { getItem } = require('../utils/dynamodb');
 
-// This is the authentication middleware your routes are trying to use
-const authenticate = (req, res, next) => {
+/**
+ * Main authentication middleware.
+ * Verifies the JWT and attaches user info to req.user.
+ */
+const verifyToken = async (req, res, next) => {
     try {
         const authHeader = req.headers.authorization;
         
@@ -14,7 +18,7 @@ const authenticate = (req, res, next) => {
         }
         
         const token = authHeader.split(' ')[1];
-        const decoded = verifyToken(token);
+        const decoded = verifyJwt(token); // Use the function from cognito.js
         
         if (!decoded) {
             return res.status(401).json({
@@ -23,8 +27,8 @@ const authenticate = (req, res, next) => {
             });
         }
         
-        // Attach user info to the request object
-        req.user = decoded;
+        // Attach decoded token data to the request
+        req.user = decoded; 
         next();
         
     } catch (error) {
@@ -35,6 +39,23 @@ const authenticate = (req, res, next) => {
     }
 };
 
+/**
+ * Role-checking middleware.
+ * Use this *after* verifyToken.
+ */
+const requireRole = (roles) => {
+    return (req, res, next) => {
+        if (!roles.includes(req.user.role)) {
+            return res.status(403).json({
+                success: false,
+                error: 'Access denied. You do not have the required permissions.'
+            });
+        }
+        next();
+    };
+};
+
 module.exports = {
-    verifyToken: authenticate // Export the middleware
+    verifyToken,
+    requireRole
 };
