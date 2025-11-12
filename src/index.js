@@ -1,3 +1,7 @@
+// src/index.js
+// EB-Tracker Backend - Complete Express App with CORS
+
+const express = require('express');
 const serverless = require('serverless-http');
 const AWS = require('aws-sdk');
 const jwt = require('jsonwebtoken');
