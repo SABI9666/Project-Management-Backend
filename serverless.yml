@@ -29,8 +29,8 @@ provider:
     SUBMISSIONS_TABLE: PMTracker-Submissions
     ANALYTICS_TABLE: PMTracker-Analytics
     
-    # S3 Bucket
-    S3_BUCKET: pmtracker-files-2024
+    # S3 Bucket (Mumbai - UPDATED with correct name)
+    S3_BUCKET: pmtracker-files-mumbai-2024
     
     # Cognito
     COGNITO_USER_POOL_ID: ap-south-1_ydwkta
@@ -64,7 +64,7 @@ provider:
             - arn:aws:dynamodb:${self:provider.region}:*:table/PMTracker-*
             - arn:aws:dynamodb:${self:provider.region}:*:table/PMTracker-*/index/*
         
-        # S3 permissions
+        # S3 permissions (UPDATED with correct bucket name)
         - Effect: Allow
           Action:
             - s3:PutObject
@@ -73,9 +73,11 @@ provider:
             - s3:ListBucket
             - s3:PutBucketCORS
             - s3:GetBucketCORS
+            - s3:PutObjectAcl
+            - s3:GetObjectAcl
           Resource:
-            - arn:aws:s3:::pmtracker-files-2024
-            - arn:aws:s3:::pmtracker-files-2024/*
+            - arn:aws:s3:::pmtracker-files-mumbai-2024
+            - arn:aws:s3:::pmtracker-files-mumbai-2024/*
         
         # Cognito permissions
         - Effect: Allow
