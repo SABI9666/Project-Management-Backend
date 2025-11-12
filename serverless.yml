@@ -44,7 +44,7 @@ provider:
     FROM_NAME: PMTracker System
     
     # Frontend
-    FRONTEND_URL: https://your-frontend-url.com
+    FRONTEND_URL: https://eb-tracker-frontend.vercel.app
 
   iam:
     role:
