@@ -30,8 +30,12 @@ app.use(cors({
             'http://127.0.0.1:5500',
             'https://eb-tracker-frontend.vercel.app',
             'https://eb-tracker-frontend-*.vercel.app',
-            // ================== ADD THIS LINE ==================
-            'http://pmtracker-frontend-2024.s3-website.ap-south-1.amazonaws.com'
+            'http://pmtracker-frontend-2024.s3-website.ap-south-1.amazonaws.com',
+            
+            // ================== YOUR NEW URLS ==================
+            'https://project-management-frontend-seven-ashy.vercel.app',
+            'https://project-management-frontend-git-main-sabins-projects-02d8db3a.vercel.app',
+            'https.project-management-frontend-byb5vvp8b-sabins-projects-02d8db3a.vercel.app'
             // ===================================================
         ];
         
@@ -44,7 +48,7 @@ app.use(cors({
         });
         
         // ================== UPDATED THIS LOGIC ==================
-        if (isAllowed || origin.includes('vercel.app')) {
+        if (isAllowed || (origin && origin.includes('vercel.app'))) {
             callback(null, true);
         } else {
             console.log('⚠️ CORS blocked origin:', origin);
@@ -141,7 +145,7 @@ try {
     const deliverablesHandler = require('./api/deliverables');
     const timesheetsHandler = require('./api/timesheets');
     const timeRequestsHandler = require('./api/time-requests');
-    const emailHandler = require('./apiV/email');
+    const emailHandler = require('./api/email');
     
     // Register protected routes
     app.use('/api/dashboard', dashboardHandler);
