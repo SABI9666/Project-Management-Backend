@@ -569,3 +569,28 @@ router.put('/:id', async (req, res) => {
 
         const updatedProposal = await updateItem(
             process.env.PROPOSALS_TABLE,
+            { id },
+            updates // Pass the whole updates object
+        );
+
+        return res.status(200).json({
+            success: true,
+            message: 'Proposal updated successfully',
+            data: updatedProposal
+        });
+
+    } catch (error) {
+        console.error('Update proposal error:', error);
+        return res.status(500).json({
+            success: false,
+            error: 'Failed to update proposal',
+            message: error.message
+        });
+    }
+});
+
+// ================== THE FIX IS HERE ==================
+// Added the missing closing lines
+// ================== END OF FIX ==================
+
+module.exports = router;
