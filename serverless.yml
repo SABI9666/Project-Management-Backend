@@ -1,4 +1,4 @@
-service: eb-tracker-backend
+ervice: eb-tracker-backend
 frameworkVersion: '3'
 
 provider:
@@ -43,8 +43,8 @@ provider:
     FROM_EMAIL: noreply@pmtracker.com
     FROM_NAME: PMTracker System
     
-    # Frontend URL
-    FRONTEND_URL: project-management-frontend-byb5vvp8b-sabins-projects-02d8db3a.vercel.app
+    # Frontend URL (UPDATED TO YOUR NEW URL)
+    FRONTEND_URL: https://project-management-frontend-seven-ashy.vercel.app
 
   iam:
     role:
@@ -113,10 +113,12 @@ functions:
     # This handler points to 'src/index.js', which will load 'src/server.js'
     handler: src/index.handler 
     events:
+      # CORS is now handled by your Express app (server.js)
       - http:
           path: /
           method: ANY
       
+      # CORS is now handled by your Express app (server.js)
       - http:
           path: /{proxy+}
           method: ANY
@@ -139,4 +141,4 @@ package:
     - 'node_modules/aws-sdk/**'
     - 'node_modules/uuid/**'
     - 'node_modules/jsonwebtoken/**'
-    - 'node_modules/bcryptjs/**'
+    - 'node_modules/bcryptjs/**
