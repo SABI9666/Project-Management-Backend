@@ -2,10 +2,16 @@
 const AWS = require('aws-sdk');
 const jwt = require('jsonwebtoken');
 
-// Configure AWS SDK
-const cognito = new AWS.CognitoIdentityServiceProvider({
+// ================== THIS IS THE FIX ==================
+// Force the AWS SDK to use the correct region for all services
+// This ensures Cognito client is created in ap-south-1
+AWS.config.update({
     region: process.env.REGION || 'ap-south-1'
 });
+// ================== END OF FIX ==================
+
+// Configure AWS SDK
+const cognito = new AWS.CognitoIdentityServiceProvider();
 
 const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID;
 const CLIENT_ID = process.env.COGNITO_CLIENT_ID;
@@ -26,6 +32,7 @@ const createUser = async (email, password, name, role) => {
             MessageAction: 'SUPPRESS' // Don't send welcome email
         };
         
+        console.log(`Creating user in pool ${USER_POOL_ID}...`); // Added log
         const result = await cognito.adminCreateUser(params).promise();
         
         // Set permanent password
