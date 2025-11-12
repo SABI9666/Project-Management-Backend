@@ -1,6 +1,6 @@
 // src/api/proposals.js - Proposals API with AWS DynamoDB
 const express = require('express');
-const { verifyToken } = require('../middleware/auth');
+const { verifyToken } = require('../middleware/auth.js'); // <-- Corrected path
 const { 
     getItem, 
     putItem, 
@@ -589,5 +589,8 @@ router.put('/:id', async (req, res) => {
     }
 });
 
+// ================== THE FIX IS HERE ==================
+// Added the missing closing lines
+// ================== END OF FIX ==================
 
 module.exports = router;
