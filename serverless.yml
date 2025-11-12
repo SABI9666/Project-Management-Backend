@@ -29,12 +29,12 @@ provider:
     SUBMISSIONS_TABLE: PMTracker-Submissions
     ANALYTICS_TABLE: PMTracker-Analytics
     
-    # S3 Bucket (Mumbai - UPDATED with correct name)
+    # S3 Bucket
     S3_BUCKET: pmtracker-files-mumbai-2024
     
-    # Cognito
-    COGNITO_USER_POOL_ID: ${env:COGNITO_USER_POOL_ID}
-    COGNITO_CLIENT_ID: ${env:COGNITO_CLIENT_ID}
+    # Cognito - YOUR COMPLETE CREDENTIALS
+    COGNITO_USER_POOL_ID: ap-south-1_LmI71occJ
+    COGNITO_CLIENT_ID: 14dfm0u9q797qopu66qk1uejde
     
     # JWT Secret
     JWT_SECRET: "7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d"
@@ -64,7 +64,7 @@ provider:
             - arn:aws:dynamodb:${self:provider.region}:*:table/PMTracker-*
             - arn:aws:dynamodb:${self:provider.region}:*:table/PMTracker-*/index/*
         
-        # S3 permissions (UPDATED with correct bucket name)
+        # S3 permissions
         - Effect: Allow
           Action:
             - s3:PutObject
