@@ -101,15 +101,23 @@ const queryByIndex = async (tableName, indexName, keyCondition, filterExpression
             TableName: tableName,
             IndexName: indexName,
             KeyConditionExpression: keyCondition.expression,
-            ExpressionAttributeNames: keyCondition.names || {},
             ExpressionAttributeValues: keyCondition.values || {}
         };
         
+        // ================== THE FIX IS HERE ==================
+        const attributeNames = keyCondition.names || {};
+        
         if (filterExpression) {
             params.FilterExpression = filterExpression.expression;
-            Object.assign(params.ExpressionAttributeNames, filterExpression.names || {});
+            Object.assign(attributeNames, filterExpression.names || {});
             Object.assign(params.ExpressionAttributeValues, filterExpression.values || {});
         }
+
+        // Only add ExpressionAttributeNames if it's not an empty object
+        if (Object.keys(attributeNames).length > 0) {
+            params.ExpressionAttributeNames = attributeNames;
+        }
+        // ================== END OF FIX ==================
         
         const result = await dynamodb.query(params).promise();
         return result.Items || [];
@@ -128,7 +136,12 @@ const scanTable = async (tableName, filterExpression = null, limit = null) => {
         
         if (filterExpression) {
             params.FilterExpression = filterExpression.expression;
-            params.ExpressionAttributeNames = filterExpression.names || {};
+            // ================== THE FIX IS HERE ==================
+            // Only add ExpressionAttributeNames if it's not an empty object
+            if (filterExpression.names && Object.keys(filterExpression.names).length > 0) {
+                params.ExpressionAttributeNames = filterExpression.names;
+            }
+            // ================== END OF FIX ==================
             params.ExpressionAttributeValues = filterExpression.values || {};
         }
         
