@@ -6,7 +6,7 @@ const morgan = require('morgan');
 const compression = require('compression');
 require('dotenv').config();
 
-// const { verifyToken } = require('./middleware/auth'); // This line was removed in a previous step, keep it removed
+// const { verifyToken } = require('./middleware/auth'); // <--- THIS CRASHING LINE IS REMOVED
 
 const app = express();
 
@@ -31,9 +31,12 @@ app.use(cors({
             'https://eb-tracker-frontend.vercel.app',
             'https://eb-tracker-frontend-*.vercel.app',
             'http://pmtracker-frontend-2024.s3-website.ap-south-1.amazonaws.com',
+            
+            // ================== YOUR NEW URLS ==================
             'https://project-management-frontend-seven-ashy.vercel.app',
             'https://project-management-frontend-git-main-sabins-projects-02d8db3a.vercel.app',
             'https.project-management-frontend-byb5vvp8b-sabins-projects-02d8db3a.vercel.app'
+            // ===================================================
         ];
         
         const isAllowed = allowedOrigins.some(allowedOrigin => {
@@ -84,7 +87,11 @@ app.use((req, res, next) => {
 // ============================================
 // HEALTH CHECK
 // ============================================
-app.get('/health', (req, res) => {
+// 
+// === THIS ROUTE WAS FIXED ===
+// Changed from '/health' to '/api/health' to match your frontend
+//
+app.get('/api/health', (req, res) => {
     res.json({
         status: 'OK',
         message: 'EBTracker AWS Backend',
@@ -94,13 +101,17 @@ app.get('/health', (req, res) => {
     });
 });
 
-app.get('/', (req, res) => {
+//
+// === THIS ROUTE WAS FIXED ===
+// Changed from '/' to '/api'
+//
+app.get('/api', (req, res) => {
     res.json({
         message: 'EBTracker Backend API - AWS Version',
         version: '2.0.0',
         status: 'running',
         endpoints: [
-            'GET  /health - Health check',
+            'GET  /api/health - Health check',
             'POST /api/auth/login - User login',
             'POST /api/auth/register - User registration',
             'GET  /api/dashboard - Dashboard data',
