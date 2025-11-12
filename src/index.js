@@ -1,134 +1,780 @@
 const serverless = require('serverless-http');
-const express = require('express');
-const cors = require('cors');
+const AWS = require('aws-sdk');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+
 const app = express();
 
 // ============================================
-// CORS CONFIGURATION - CRITICAL FOR AWS
+// CORS MIDDLEWARE - CRITICAL FOR FRONTEND CONNECTION
 // ============================================
-app.use(cors({
-    origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: [
-        'Content-Type',
-        'Authorization',
-        'X-Amz-Date',
-        'X-Api-Key',
-        'X-Amz-Security-Token',
-        'X-Amz-User-Agent',
-        'Accept',
-        'Cache-Control',
-        'X-Requested-With'
-    ],
-    credentials: false
-}));
-
-// Manual CORS headers for extra safety
 app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Amz-Date, X-Api-Key, X-Amz-Security-Token, X-Amz-User-Agent, Accept, Cache-Control, X-Requested-With');
-    res.header('Access-Control-Max-Age', '86400'); // 24 hours
-    
-    // Handle preflight OPTIONS requests
-    if (req.method === 'OPTIONS') {
-        return res.status(200).json({
-            success: true,
-            message: 'CORS preflight OK'
-        });
-    }
-    
-    next();
+  // Set CORS headers for all responses
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Amz-Date, X-Api-Key, X-Amz-Security-Token, Accept, Cache-Control, X-Requested-With');
+  res.setHeader('Access-Control-Allow-Credentials', 'false');
+  res.setHeader('Access-Control-Max-Age', '3600');
+  
+  // Handle preflight OPTIONS request
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
+  next();
 });
 
-// Body parsers
+// ============================================
+// MIDDLEWARE
+// ============================================
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Request logging
 app.use((req, res, next) => {
-    console.log(`📥 ${req.method} ${req.path}`);
-    next();
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  next();
 });
+
+// ============================================
+// AWS CONFIGURATION
+// ============================================
+const region = process.env.REGION || 'ap-south-1';
+AWS.config.update({ region });
+
+const dynamodb = new AWS.DynamoDB.DocumentClient();
+const s3 = new AWS.S3();
+const cognito = new AWS.CognitoIdentityServiceProvider();
+const ses = new AWS.SES();
+
+// Environment variables
+const {
+  PROPOSALS_TABLE,
+  PROJECTS_TABLE,
+  FILES_TABLE,
+  TIMESHEETS_TABLE,
+  TIME_REQUESTS_TABLE,
+  DELIVERABLES_TABLE,
+  ACTIVITIES_TABLE,
+  NOTIFICATIONS_TABLE,
+  PAYMENTS_TABLE,
+  INVOICES_TABLE,
+  TASKS_TABLE,
+  USERS_TABLE,
+  SUBMISSIONS_TABLE,
+  ANALYTICS_TABLE,
+  S3_BUCKET,
+  COGNITO_USER_POOL_ID,
+  COGNITO_CLIENT_ID,
+  JWT_SECRET,
+  FROM_EMAIL,
+  FRONTEND_URL
+} = process.env;
+
+// ============================================
+// AUTHENTICATION MIDDLEWARE
+// ============================================
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+
+  if (!token) {
+    return res.status(401).json({ success: false, error: 'Authentication required' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ success: false, error: 'Invalid or expired token' });
+    }
+    req.user = user;
+    next();
+  });
+};
 
 // ============================================
 // HEALTH CHECK ENDPOINT
 // ============================================
-app.get('/api/health', (req, res) => {
-    res.status(200).json({
-        success: true,
-        message: 'Backend is healthy',
-        timestamp: new Date().toISOString(),
-        region: process.env.REGION || 'ap-south-1',
-        stage: process.env.STAGE || 'production'
-    });
-});
-
 app.get('/health', (req, res) => {
-    res.status(200).json({
-        success: true,
-        message: 'Backend is healthy'
-    });
+  res.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    service: 'eb-tracker-backend',
+    version: '1.0.0',
+    region: region,
+    environment: process.env.STAGE || 'production'
+  });
 });
 
 // Root endpoint
 app.get('/', (req, res) => {
-    res.status(200).json({
-        success: true,
-        message: 'EBTracker Backend API',
-        version: '1.0.0',
-        endpoints: {
-            health: '/api/health',
-            proposals: '/api/proposals',
-            projects: '/api/projects',
-            files: '/api/files',
-            timesheets: '/api/timesheets',
-            users: '/api/users'
-        }
-    });
+  res.json({
+    message: 'EB-Tracker Backend API',
+    version: '1.0.0',
+    endpoints: {
+      health: '/health',
+      auth: '/api/auth/*',
+      proposals: '/api/proposals',
+      projects: '/api/projects',
+      files: '/api/files',
+      users: '/api/users'
+    }
+  });
 });
 
 // ============================================
-// IMPORT ROUTES
+// AUTH ROUTES
 // ============================================
-const proposalsRoutes = require('./routes/proposals');
-const projectsRoutes = require('./routes/projects');
-const filesRoutes = require('./routes/files');
-const timesheetsRoutes = require('./routes/timesheets');
-const timeRequestsRoutes = require('./routes/time-requests');
-const deliverablesRoutes = require('./routes/deliverables');
-const activitiesRoutes = require('./routes/activities');
-const notificationsRoutes = require('./routes/notifications');
-const paymentsRoutes = require('./routes/payments');
-const invoicesRoutes = require('./routes/invoices');
-const tasksRoutes = require('./routes/tasks');
-const usersRoutes = require('./routes/users');
-const submissionsRoutes = require('./routes/submissions');
-const analyticsRoutes = require('./routes/analytics');
-const dashboardRoutes = require('./routes/dashboard');
-const emailRoutes = require('./routes/email');
-const variationsRoutes = require('./routes/variations');
+
+// Login
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email and password are required'
+      });
+    }
+
+    // Authenticate with Cognito
+    const authParams = {
+      AuthFlow: 'ADMIN_NO_SRP_AUTH',
+      UserPoolId: COGNITO_USER_POOL_ID,
+      ClientId: COGNITO_CLIENT_ID,
+      AuthParameters: {
+        USERNAME: email,
+        PASSWORD: password
+      }
+    };
+
+    let cognitoUser;
+    try {
+      const authResult = await cognito.adminInitiateAuth(authParams).promise();
+      cognitoUser = authResult.AuthenticationResult;
+    } catch (cognitoError) {
+      console.error('Cognito authentication error:', cognitoError);
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid email or password'
+      });
+    }
+
+    // Get user details from DynamoDB
+    const userParams = {
+      TableName: USERS_TABLE,
+      Key: { email }
+    };
+
+    const userResult = await dynamodb.get(userParams).promise();
+    
+    if (!userResult.Item) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const user = userResult.Item;
+
+    // Generate JWT token
+    const token = jwt.sign(
+      {
+        uid: user.uid,
+        email: user.email,
+        role: user.role,
+        name: user.name
+      },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    res.json({
+      success: true,
+      data: {
+        token,
+        user: {
+          uid: user.uid,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          department: user.department
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Login failed. Please try again.'
+    });
+  }
+});
+
+// Register (for admin use)
+app.post('/api/auth/register', authenticateToken, async (req, res) => {
+  try {
+    // Only allow admins to register new users
+    if (req.user.role !== 'director' && req.user.role !== 'coo') {
+      return res.status(403).json({
+        success: false,
+        error: 'Unauthorized'
+      });
+    }
+
+    const { email, password, name, role, department } = req.body;
+
+    // Create user in Cognito
+    const cognitoParams = {
+      UserPoolId: COGNITO_USER_POOL_ID,
+      Username: email,
+      TemporaryPassword: password,
+      UserAttributes: [
+        { Name: 'email', Value: email },
+        { Name: 'email_verified', Value: 'true' }
+      ]
+    };
+
+    await cognito.adminCreateUser(cognitoParams).promise();
+
+    // Set permanent password
+    await cognito.adminSetUserPassword({
+      UserPoolId: COGNITO_USER_POOL_ID,
+      Username: email,
+      Password: password,
+      Permanent: true
+    }).promise();
+
+    // Create user in DynamoDB
+    const uid = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const userParams = {
+      TableName: USERS_TABLE,
+      Item: {
+        uid,
+        email,
+        name,
+        role,
+        department,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+    };
+
+    await dynamodb.put(userParams).promise();
+
+    res.json({
+      success: true,
+      data: { uid, email, name, role }
+    });
+
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Registration failed'
+    });
+  }
+});
 
 // ============================================
-// REGISTER ROUTES
+// PROPOSALS ROUTES
 // ============================================
-app.use('/api/proposals', proposalsRoutes);
-app.use('/api/projects', projectsRoutes);
-app.use('/api/files', filesRoutes);
-app.use('/api/timesheets', timesheetsRoutes);
-app.use('/api/time-requests', timeRequestsRoutes);
-app.use('/api/deliverables', deliverablesRoutes);
-app.use('/api/activities', activitiesRoutes);
-app.use('/api/notifications', notificationsRoutes);
-app.use('/api/payments', paymentsRoutes);
-app.use('/api/invoices', invoicesRoutes);
-app.use('/api/tasks', tasksRoutes);
-app.use('/api/users', usersRoutes);
-app.use('/api/submissions', submissionsRoutes);
-app.use('/api/analytics', analyticsRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/email', emailRoutes);
-app.use('/api/variations', variationsRoutes);
+
+// Get all proposals (with optional filtering)
+app.get('/api/proposals', authenticateToken, async (req, res) => {
+  try {
+    const params = {
+      TableName: PROPOSALS_TABLE
+    };
+
+    const result = await dynamodb.scan(params).promise();
+    
+    // Filter based on user role
+    let proposals = result.Items;
+    
+    if (req.user.role === 'bdm') {
+      proposals = proposals.filter(p => p.createdByUid === req.user.uid);
+    }
+
+    res.json({
+      success: true,
+      data: proposals
+    });
+
+  } catch (error) {
+    console.error('Get proposals error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch proposals'
+    });
+  }
+});
+
+// Get single proposal
+app.get('/api/proposals/:id', authenticateToken, async (req, res) => {
+  try {
+    const params = {
+      TableName: PROPOSALS_TABLE,
+      Key: { id: req.params.id }
+    };
+
+    const result = await dynamodb.get(params).promise();
+    
+    if (!result.Item) {
+      return res.status(404).json({
+        success: false,
+        error: 'Proposal not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: result.Item
+    });
+
+  } catch (error) {
+    console.error('Get proposal error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch proposal'
+    });
+  }
+});
+
+// Create proposal
+app.post('/api/proposals', authenticateToken, async (req, res) => {
+  try {
+    const proposalId = `proposal_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    const proposal = {
+      id: proposalId,
+      ...req.body,
+      createdByUid: req.user.uid,
+      createdByEmail: req.user.email,
+      createdByName: req.user.name,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      status: req.body.status || 'draft'
+    };
+
+    const params = {
+      TableName: PROPOSALS_TABLE,
+      Item: proposal
+    };
+
+    await dynamodb.put(params).promise();
+
+    res.json({
+      success: true,
+      data: proposal
+    });
+
+  } catch (error) {
+    console.error('Create proposal error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create proposal'
+    });
+  }
+});
+
+// Update proposal
+app.put('/api/proposals/:id', authenticateToken, async (req, res) => {
+  try {
+    const updates = {
+      ...req.body,
+      updatedAt: new Date().toISOString()
+    };
+
+    // Build update expression
+    const updateExpressions = [];
+    const expressionAttributeNames = {};
+    const expressionAttributeValues = {};
+
+    Object.keys(updates).forEach((key, index) => {
+      updateExpressions.push(`#attr${index} = :val${index}`);
+      expressionAttributeNames[`#attr${index}`] = key;
+      expressionAttributeValues[`:val${index}`] = updates[key];
+    });
+
+    const params = {
+      TableName: PROPOSALS_TABLE,
+      Key: { id: req.params.id },
+      UpdateExpression: `SET ${updateExpressions.join(', ')}`,
+      ExpressionAttributeNames: expressionAttributeNames,
+      ExpressionAttributeValues: expressionAttributeValues,
+      ReturnValues: 'ALL_NEW'
+    };
+
+    const result = await dynamodb.update(params).promise();
+
+    res.json({
+      success: true,
+      data: result.Attributes
+    });
+
+  } catch (error) {
+    console.error('Update proposal error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update proposal'
+    });
+  }
+});
+
+// Delete proposal
+app.delete('/api/proposals/:id', authenticateToken, async (req, res) => {
+  try {
+    // Only directors and COOs can delete
+    if (req.user.role !== 'director' && req.user.role !== 'coo') {
+      return res.status(403).json({
+        success: false,
+        error: 'Unauthorized'
+      });
+    }
+
+    const params = {
+      TableName: PROPOSALS_TABLE,
+      Key: { id: req.params.id }
+    };
+
+    await dynamodb.delete(params).promise();
+
+    res.json({
+      success: true,
+      message: 'Proposal deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('Delete proposal error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete proposal'
+    });
+  }
+});
+
+// ============================================
+// PROJECTS ROUTES
+// ============================================
+
+// Get all projects
+app.get('/api/projects', authenticateToken, async (req, res) => {
+  try {
+    const params = {
+      TableName: PROJECTS_TABLE
+    };
+
+    const result = await dynamodb.scan(params).promise();
+
+    res.json({
+      success: true,
+      data: result.Items
+    });
+
+  } catch (error) {
+    console.error('Get projects error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch projects'
+    });
+  }
+});
+
+// Get single project
+app.get('/api/projects/:id', authenticateToken, async (req, res) => {
+  try {
+    const params = {
+      TableName: PROJECTS_TABLE,
+      Key: { id: req.params.id }
+    };
+
+    const result = await dynamodb.get(params).promise();
+    
+    if (!result.Item) {
+      return res.status(404).json({
+        success: false,
+        error: 'Project not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: result.Item
+    });
+
+  } catch (error) {
+    console.error('Get project error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch project'
+    });
+  }
+});
+
+// Create project
+app.post('/api/projects', authenticateToken, async (req, res) => {
+  try {
+    const projectId = `project_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    const project = {
+      id: projectId,
+      ...req.body,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const params = {
+      TableName: PROJECTS_TABLE,
+      Item: project
+    };
+
+    await dynamodb.put(params).promise();
+
+    res.json({
+      success: true,
+      data: project
+    });
+
+  } catch (error) {
+    console.error('Create project error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create project'
+    });
+  }
+});
+
+// Update project
+app.put('/api/projects/:id', authenticateToken, async (req, res) => {
+  try {
+    const updates = {
+      ...req.body,
+      updatedAt: new Date().toISOString()
+    };
+
+    const updateExpressions = [];
+    const expressionAttributeNames = {};
+    const expressionAttributeValues = {};
+
+    Object.keys(updates).forEach((key, index) => {
+      updateExpressions.push(`#attr${index} = :val${index}`);
+      expressionAttributeNames[`#attr${index}`] = key;
+      expressionAttributeValues[`:val${index}`] = updates[key];
+    });
+
+    const params = {
+      TableName: PROJECTS_TABLE,
+      Key: { id: req.params.id },
+      UpdateExpression: `SET ${updateExpressions.join(', ')}`,
+      ExpressionAttributeNames: expressionAttributeNames,
+      ExpressionAttributeValues: expressionAttributeValues,
+      ReturnValues: 'ALL_NEW'
+    };
+
+    const result = await dynamodb.update(params).promise();
+
+    res.json({
+      success: true,
+      data: result.Attributes
+    });
+
+  } catch (error) {
+    console.error('Update project error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update project'
+    });
+  }
+});
+
+// ============================================
+// FILES/S3 ROUTES
+// ============================================
+
+// Generate presigned URL for upload
+app.post('/api/files/upload-url', authenticateToken, async (req, res) => {
+  try {
+    const { fileName, fileType, folder = 'general' } = req.body;
+    
+    const key = `${folder}/${Date.now()}_${fileName}`;
+    
+    const params = {
+      Bucket: S3_BUCKET,
+      Key: key,
+      ContentType: fileType,
+      Expires: 300 // 5 minutes
+    };
+
+    const uploadUrl = s3.getSignedUrl('putObject', params);
+
+    res.json({
+      success: true,
+      data: {
+        uploadUrl,
+        key,
+        bucket: S3_BUCKET
+      }
+    });
+
+  } catch (error) {
+    console.error('Generate upload URL error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate upload URL'
+    });
+  }
+});
+
+// Get file download URL
+app.get('/api/files/download-url/:key', authenticateToken, async (req, res) => {
+  try {
+    const key = decodeURIComponent(req.params.key);
+    
+    const params = {
+      Bucket: S3_BUCKET,
+      Key: key,
+      Expires: 300 // 5 minutes
+    };
+
+    const downloadUrl = s3.getSignedUrl('getObject', params);
+
+    res.json({
+      success: true,
+      data: { downloadUrl }
+    });
+
+  } catch (error) {
+    console.error('Generate download URL error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate download URL'
+    });
+  }
+});
+
+// Save file metadata
+app.post('/api/files', authenticateToken, async (req, res) => {
+  try {
+    const fileId = `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    const file = {
+      id: fileId,
+      ...req.body,
+      uploadedBy: req.user.uid,
+      uploadedByEmail: req.user.email,
+      createdAt: new Date().toISOString()
+    };
+
+    const params = {
+      TableName: FILES_TABLE,
+      Item: file
+    };
+
+    await dynamodb.put(params).promise();
+
+    res.json({
+      success: true,
+      data: file
+    });
+
+  } catch (error) {
+    console.error('Save file metadata error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to save file metadata'
+    });
+  }
+});
+
+// Get files
+app.get('/api/files', authenticateToken, async (req, res) => {
+  try {
+    const params = {
+      TableName: FILES_TABLE
+    };
+
+    if (req.query.proposalId) {
+      params.FilterExpression = 'proposalId = :proposalId';
+      params.ExpressionAttributeValues = {
+        ':proposalId': req.query.proposalId
+      };
+    }
+
+    const result = await dynamodb.scan(params).promise();
+
+    res.json({
+      success: true,
+      data: result.Items
+    });
+
+  } catch (error) {
+    console.error('Get files error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch files'
+    });
+  }
+});
+
+// ============================================
+// USERS ROUTES
+// ============================================
+
+// Get all users (admin only)
+app.get('/api/users', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'director' && req.user.role !== 'coo') {
+      return res.status(403).json({
+        success: false,
+        error: 'Unauthorized'
+      });
+    }
+
+    const params = {
+      TableName: USERS_TABLE
+    };
+
+    const result = await dynamodb.scan(params).promise();
+
+    res.json({
+      success: true,
+      data: result.Items
+    });
+
+  } catch (error) {
+    console.error('Get users error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch users'
+    });
+  }
+});
+
+// Get current user
+app.get('/api/users/me', authenticateToken, async (req, res) => {
+  try {
+    const params = {
+      TableName: USERS_TABLE,
+      Key: { email: req.user.email }
+    };
+
+    const result = await dynamodb.get(params).promise();
+
+    res.json({
+      success: true,
+      data: result.Item
+    });
+
+  } catch (error) {
+    console.error('Get current user error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch user'
+    });
+  }
+});
 
 // ============================================
 // ERROR HANDLING
@@ -136,47 +782,25 @@ app.use('/api/variations', variationsRoutes);
 
 // 404 handler
 app.use((req, res) => {
-    res.status(404).json({
-        success: false,
-        error: 'Endpoint not found',
-        path: req.path,
-        method: req.method
-    });
+  res.status(404).json({
+    success: false,
+    error: 'Endpoint not found',
+    path: req.path,
+    method: req.method
+  });
 });
 
-// Global error handler
+// Error handler
 app.use((err, req, res, next) => {
-    console.error('❌ Error:', err);
-    
-    res.status(err.status || 500).json({
-        success: false,
-        error: err.message || 'Internal server error',
-        ...(process.env.STAGE === 'dev' && { stack: err.stack })
-    });
+  console.error('Unhandled error:', err);
+  res.status(500).json({
+    success: false,
+    error: 'Internal server error',
+    message: err.message
+  });
 });
 
 // ============================================
-// EXPORT HANDLER
+// EXPORT FOR LAMBDA
 // ============================================
-module.exports.handler = serverless(app, {
-    request: (request, event, context) => {
-        // Log incoming request
-        console.log('📨 Request:', {
-            method: event.httpMethod,
-            path: event.path,
-            headers: event.headers
-        });
-    },
-    response: (response) => {
-        // Ensure CORS headers on all responses
-        if (!response.headers) {
-            response.headers = {};
-        }
-        
-        response.headers['Access-Control-Allow-Origin'] = '*';
-        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, PATCH, OPTIONS';
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Amz-Date, X-Api-Key, X-Amz-Security-Token';
-        
-        return response;
-    }
-});
+module.exports.handler = serverless(app);
