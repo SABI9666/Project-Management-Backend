@@ -1,4 +1,4 @@
-ervice: eb-tracker-backend
+service: eb-tracker-backend
 frameworkVersion: '3'
 
 provider:
@@ -141,4 +141,4 @@ package:
     - 'node_modules/aws-sdk/**'
     - 'node_modules/uuid/**'
     - 'node_modules/jsonwebtoken/**'
-    - 'node_modules/bcryptjs/**
+    - 'node_modules/bcryptjs/**' # <-- THE FIX IS HERE
