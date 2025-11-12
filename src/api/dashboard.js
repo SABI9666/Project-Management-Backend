@@ -1,6 +1,6 @@
 // src/api/dashboard.js - Dashboard Stats API with AWS DynamoDB
 const express = require('express');
-const { verifyToken } = require('../middleware/auth');
+const { verifyToken } = require('../middleware/auth.js'); // <-- THE FIX IS HERE (added .js)
 const { getItem, queryByIndex, scanTable } = require('../utils/dynamodb');
 
 const router = express.Router();
