@@ -33,8 +33,8 @@ provider:
     S3_BUCKET: pmtracker-files-mumbai-2024
     
     # Cognito
-    COGNITO_USER_POOL_ID: ap-south-1_ydwkta
-    COGNITO_CLIENT_ID: 2MMb8hmRRb
+    COGNITO_USER_POOL_ID: ${env:COGNITO_USER_POOL_ID}
+    COGNITO_CLIENT_ID: ${env:COGNITO_CLIENT_ID}
     
     # JWT Secret
     JWT_SECRET: "7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d"
