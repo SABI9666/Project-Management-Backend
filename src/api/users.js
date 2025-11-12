@@ -1,6 +1,6 @@
 // src/api/users.js - Users API (AWS Version)
 const express = require('express');
-const { verifyToken, requireRole } = require('../middleware/auth');
+const { verifyToken, requireRole } = require('../middleware/auth.js'); // <-- Corrected path
 const { 
     createUser: createCognitoUser, 
     updateUser: updateCognitoUser,
@@ -297,25 +297,3 @@ router.put('/:uid', requireRole(['director']), async (req, res) => {
 });
 
 module.exports = router;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
