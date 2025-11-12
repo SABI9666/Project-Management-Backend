@@ -44,7 +44,7 @@ provider:
     FROM_NAME: PMTracker System
     
     # Frontend URL
-    FRONTEND_URL: project-management-frontend-seven-ashy.vercel.app
+    FRONTEND_URL: project-management-frontend-byb5vvp8b-sabins-projects-02d8db3a.vercel.app
 
   iam:
     role:
