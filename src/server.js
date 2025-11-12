@@ -30,6 +30,9 @@ app.use(cors({
             'http://127.0.0.1:5500',
             'https://eb-tracker-frontend.vercel.app',
             'https://eb-tracker-frontend-*.vercel.app',
+            // ================== ADD THIS LINE ==================
+            'http://pmtracker-frontend-2024.s3-website.ap-south-1.amazonaws.com'
+            // ===================================================
         ];
         
         const isAllowed = allowedOrigins.some(allowedOrigin => {
@@ -40,12 +43,14 @@ app.use(cors({
             return allowedOrigin === origin;
         });
         
+        // ================== UPDATED THIS LOGIC ==================
         if (isAllowed || origin.includes('vercel.app')) {
             callback(null, true);
         } else {
             console.log('⚠️ CORS blocked origin:', origin);
-            callback(null, true);
+            callback(new Error('This origin is not allowed by CORS')); // Block unauthorized origins
         }
+        // ========================================================
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
@@ -136,7 +141,7 @@ try {
     const deliverablesHandler = require('./api/deliverables');
     const timesheetsHandler = require('./api/timesheets');
     const timeRequestsHandler = require('./api/time-requests');
-    const emailHandler = require('./api/email');
+    const emailHandler = require('./apiV/email');
     
     // Register protected routes
     app.use('/api/dashboard', dashboardHandler);
@@ -194,7 +199,7 @@ if (require.main === module) {
         console.log('╔═══════════════════════════════════════╗');
         console.log(`║  ✅ Server running on port ${PORT}      ║`);
         console.log(`║  🌍 Environment: ${(process.env.NODE_ENV || 'development').padEnd(20)}║`);
-        console.log('║  🌐 CORS: Enabled for Vercel           ║');
+        console.log('║  🌐 CORS: Enabled for S3 & Vercel      ║');
         console.log('║  ☁️  AWS: DynamoDB + S3 + Cognito      ║');
         console.log('╚═══════════════════════════════════════╝');
         console.log('');
