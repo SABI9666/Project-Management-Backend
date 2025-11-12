@@ -29,21 +29,21 @@ provider:
     SUBMISSIONS_TABLE: PMTracker-Submissions
     ANALYTICS_TABLE: PMTracker-Analytics
     
-    # S3 Bucket (Sydney - existing bucket)
+    # S3 Bucket
     S3_BUCKET: pmtracker-files-2024
     
     # Cognito
     COGNITO_USER_POOL_ID: ap-south-1_ydwkta
     COGNITO_CLIENT_ID: 2MMb8hmRRb
     
-    # JWT Secret (REPLACE WITH YOUR GENERATED KEY)
+    # JWT Secret
     JWT_SECRET: "7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d"
     
     # Email
     FROM_EMAIL: noreply@pmtracker.com
     FROM_NAME: PMTracker System
     
-    # Frontend
+    # Frontend URL
     FRONTEND_URL: http://pmtracker-frontend-2024.s3-website.ap-south-1.amazonaws.com
 
   iam:
@@ -64,7 +64,7 @@ provider:
             - arn:aws:dynamodb:${self:provider.region}:*:table/PMTracker-*
             - arn:aws:dynamodb:${self:provider.region}:*:table/PMTracker-*/index/*
         
-        # S3 permissions (Sydney bucket)
+        # S3 permissions
         - Effect: Allow
           Action:
             - s3:PutObject
@@ -90,7 +90,7 @@ provider:
             - cognito-idp:AdminResetUserPassword
           Resource: arn:aws:cognito-idp:${self:provider.region}:*:userpool/*
         
-        # SES permissions for email
+        # SES permissions
         - Effect: Allow
           Action:
             - ses:SendEmail
@@ -110,6 +110,25 @@ functions:
   api:
     handler: src/index.handler
     events:
+      # Root path with CORS
+      - http:
+          path: /
+          method: ANY
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - X-Amz-Date
+              - Authorization
+              - X-Api-Key
+              - X-Amz-Security-Token
+              - X-Amz-User-Agent
+              - Accept
+              - Cache-Control
+              - X-Requested-With
+            allowCredentials: false
+      
+      # All proxy paths with CORS
       - http:
           path: /{proxy+}
           method: ANY
@@ -124,6 +143,7 @@ functions:
               - X-Amz-User-Agent
               - Accept
               - Cache-Control
+              - X-Requested-With
             allowCredentials: false
 
 plugins:
