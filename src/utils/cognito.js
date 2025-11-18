@@ -1,4 +1,4 @@
-// src/utils/cognito.js - AWS Cognito Helper Functions (FIXED VERSION)
+// src/utils/cognito.js - AWS Cognito Helper Functions (COMPLETE FIXED VERSION)
 const AWS = require('aws-sdk');
 const jwt = require('jsonwebtoken');
 
@@ -38,7 +38,7 @@ const createUser = async (email, password, name, role) => {
             MessageAction: 'SUPPRESS' // Don't send AWS email
         };
         
-        console.log('📝 Creating user in Cognito...');
+        console.log('🔧 Creating user in Cognito...');
         const result = await cognito.adminCreateUser(createParams).promise();
         console.log('✅ User created in Cognito');
         
@@ -193,7 +193,57 @@ const updateUser = async (username, attributes) => {
 };
 
 // ==========================================================
-// 5. DELETE USER
+// 5. SET USER STATUS (ENABLE/DISABLE) - THIS WAS MISSING!
+// ==========================================================
+const setUserStatus = async (username, enabled) => {
+    try {
+        console.log(`🔧 Setting user status for ${username}: ${enabled ? 'ENABLED' : 'DISABLED'}`);
+        
+        if (enabled) {
+            // Enable the user
+            const params = {
+                UserPoolId: USER_POOL_ID,
+                Username: username
+            };
+            await cognito.adminEnableUser(params).promise();
+            console.log('✅ User enabled');
+        } else {
+            // Disable the user
+            const params = {
+                UserPoolId: USER_POOL_ID,
+                Username: username
+            };
+            await cognito.adminDisableUser(params).promise();
+            console.log('✅ User disabled');
+        }
+        
+        return true;
+    } catch (error) {
+        console.error('❌ Error setting user status:', error);
+        throw new Error(`Failed to ${enabled ? 'enable' : 'disable'} user: ${error.message}`);
+    }
+};
+
+// ==========================================================
+// 6. LIST USERS BY ROLE
+// ==========================================================
+const listUsersByRole = async (role) => {
+    try {
+        const params = {
+            UserPoolId: USER_POOL_ID,
+            Filter: `custom:role = "${role}"`
+        };
+        
+        const result = await cognito.listUsers(params).promise();
+        return result.Users || [];
+    } catch (error) {
+        console.error('Error listing users by role:', error);
+        throw error;
+    }
+};
+
+// ==========================================================
+// 7. DELETE USER
 // ==========================================================
 const deleteUser = async (username) => {
     try {
@@ -211,7 +261,7 @@ const deleteUser = async (username) => {
 };
 
 // ==========================================================
-// 6. CHANGE PASSWORD
+// 8. CHANGE PASSWORD
 // ==========================================================
 const changePassword = async (username, newPassword) => {
     try {
@@ -235,7 +285,7 @@ const changePassword = async (username, newPassword) => {
 };
 
 // ==========================================================
-// 7. PASSWORD VALIDATION
+// 9. PASSWORD VALIDATION
 // ==========================================================
 const validatePassword = (password) => {
     // Cognito default password policy:
@@ -256,7 +306,7 @@ const validatePassword = (password) => {
 };
 
 // ==========================================================
-// 8. JWT TOKEN UTILITIES
+// 10. JWT TOKEN UTILITIES
 // ==========================================================
 const verifyToken = (token) => {
     try {
@@ -299,9 +349,31 @@ module.exports = {
     authenticateUser,
     getUser,
     updateUser,
+    setUserStatus,      // ✅ NOW EXPORTED
+    listUsersByRole,    // ✅ NOW EXPORTED
     deleteUser,
     changePassword,
     validatePassword,
     verifyToken,
     generateToken
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
