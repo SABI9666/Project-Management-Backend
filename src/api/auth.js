@@ -1,4 +1,4 @@
-// src/api/auth.js - Authentication API (FINAL WORKING VERSION)
+// src/api/auth.js - Authentication API (FIXED FOR COMPOSITE KEY)
 const express = require('express');
 const { 
     generateToken, 
@@ -97,14 +97,15 @@ router.post('/register', async (req, res) => {
         console.log('3️⃣ Saving user to DynamoDB...');
 
         // 4. Create user in DynamoDB
-        // CRITICAL FIX: Use Cognito's actual UUID (from result.User.Username) as primary key
+        // CRITICAL FIX: Table has composite key (userId + sort key "(none)")
         const timestamp = Date.now();
-        const userId = cognitoUser.uid; // This is the Cognito UUID
+        const userId = cognitoUser.uid; // Cognito UUID
         
         console.log(`🔑 Using userId: ${userId}`);
         
         const userData = {
-            userId: userId,              // ✅ PRIMARY KEY - Cognito UUID
+            userId: userId,              // ✅ PARTITION KEY (required)
+            "(none)": "",                // ✅ SORT KEY (required - empty string)
             uid: userId,                 // Backwards compatibility
             email: email.toLowerCase(),
             name: name,
@@ -153,8 +154,8 @@ router.post('/register', async (req, res) => {
             success: true,
             message: 'User registered successfully',
             data: {
-                uid: userData.userId,
-                userId: userData.userId,
+                uid: userId,
+                userId: userId,
                 email: userData.email,
                 name: userData.name,
                 role: userData.role,
@@ -194,7 +195,7 @@ router.post('/login', async (req, res) => {
         
         console.log(`1️⃣ Looking up user in DynamoDB: ${email}`);
         
-        // 2. Get user from DynamoDB
+        // 2. Get user from DynamoDB via email-index
         let users = [];
         try {
             users = await queryByIndex(
@@ -207,7 +208,6 @@ router.post('/login', async (req, res) => {
             );
         } catch (queryError) {
             console.warn('⚠️ Email index query failed, using table scan:', queryError.message);
-            // Fallback: scan table
             const { scanTable } = require('../utils/dynamodb');
             const allUsers = await scanTable(process.env.USERS_TABLE);
             users = allUsers.filter(u => u.email === email.toLowerCase());
@@ -224,7 +224,7 @@ router.post('/login', async (req, res) => {
         
         const user = users[0];
         console.log('✅ User found in DynamoDB:', { 
-            userId: user.userId || user.uid, 
+            userId: user.userId, 
             email: user.email, 
             role: user.role 
         });
@@ -259,8 +259,8 @@ router.post('/login', async (req, res) => {
         
         // 5. Generate JWT token with user data
         const token = generateToken({
-            uid: user.userId || user.uid,
-            userId: user.userId || user.uid,
+            uid: user.userId,
+            userId: user.userId,
             email: user.email,
             name: user.name,
             role: user.role
@@ -268,7 +268,11 @@ router.post('/login', async (req, res) => {
         
         // 6. Update last login timestamp
         try {
-            const primaryKey = user.userId ? { userId: user.userId } : { uid: user.uid };
+            // Use composite key for update
+            const primaryKey = { 
+                userId: user.userId,
+                "(none)": user['(none)'] || ""
+            };
             await updateItem(
                 process.env.USERS_TABLE,
                 primaryKey,
@@ -279,7 +283,6 @@ router.post('/login', async (req, res) => {
             );
         } catch (updateError) {
             console.warn('⚠️ Failed to update last login:', updateError.message);
-            // Don't fail login if this update fails
         }
         
         console.log('✅ Login successful');
@@ -288,8 +291,8 @@ router.post('/login', async (req, res) => {
             success: true,
             message: 'Login successful',
             data: {
-                uid: user.userId || user.uid,
-                userId: user.userId || user.uid,
+                uid: user.userId,
+                userId: user.userId,
                 email: user.email,
                 name: user.name,
                 role: user.role,
@@ -341,11 +344,24 @@ router.get('/me', async (req, res) => {
             });
         }
         
-        // Try to get user by userId first, then uid
-        const userKey = decoded.userId ? { userId: decoded.userId } : { uid: decoded.uid };
-        const user = await getItem(process.env.USERS_TABLE, userKey);
+        // Query by email since it's more reliable
+        let users = [];
+        try {
+            users = await queryByIndex(
+                process.env.USERS_TABLE,
+                'email-index',
+                {
+                    expression: 'email = :email',
+                    values: { ':email': decoded.email }
+                }
+            );
+        } catch (queryError) {
+            const { scanTable } = require('../utils/dynamodb');
+            const allUsers = await scanTable(process.env.USERS_TABLE);
+            users = allUsers.filter(u => u.email === decoded.email);
+        }
         
-        if (!user) {
+        if (users.length === 0) {
             return res.status(404).json({
                 success: false,
                 error: 'User not found',
@@ -353,11 +369,13 @@ router.get('/me', async (req, res) => {
             });
         }
         
+        const user = users[0];
+        
         return res.status(200).json({
             success: true,
             data: {
-                uid: user.userId || user.uid,
-                userId: user.userId || user.uid,
+                uid: user.userId,
+                userId: user.userId,
                 email: user.email,
                 name: user.name,
                 role: user.role,
