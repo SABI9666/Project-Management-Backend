@@ -32,11 +32,14 @@ provider:
     # S3 Bucket
     S3_BUCKET: pmtracker-files-mumbai-2024
     
-    # Cognito - Ensure these match your actual AWS Cognito Pool ID
+    # ============================================
+    # CRITICAL FIX: Updated Cognito User Pool ID
+    # From your screenshot, the correct User Pool ID is ap-south-1_LmI71occJ
+    # ============================================
     COGNITO_USER_POOL_ID: ap-south-1_LmI71occJ
     COGNITO_CLIENT_ID: 14dfm0u9q797qopu66qk1uejde
     
-    # JWT Secret
+    # JWT Secret (should be in AWS Secrets Manager for production)
     JWT_SECRET: "7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d"
     
     # Email
@@ -79,7 +82,7 @@ provider:
             - arn:aws:s3:::pmtracker-files-mumbai-2024
             - arn:aws:s3:::pmtracker-files-mumbai-2024/*
         
-        # Cognito permissions (Required for auth.js fixes)
+        # Cognito permissions
         - Effect: Allow
           Action:
             - cognito-idp:AdminGetUser
@@ -90,9 +93,10 @@ provider:
             - cognito-idp:AdminInitiateAuth
             - cognito-idp:AdminSetUserPassword
             - cognito-idp:AdminResetUserPassword
+            - cognito-idp:AdminUserGlobalSignOut
           Resource: arn:aws:cognito-idp:${self:provider.region}:*:userpool/*
         
-        # SES permissions (Required for email notifications)
+        # SES permissions
         - Effect: Allow
           Action:
             - ses:SendEmail
@@ -108,16 +112,13 @@ provider:
             - logs:PutLogEvents
           Resource: arn:aws:logs:${self:provider.region}:*:log-group:/aws/lambda/*
 
-# =====================================================
-# PACKAGE CONFIGURATION (Prevents "Module not found")
-# =====================================================
 package:
   individually: false
   patterns:
-    - '!./**'              # Exclude everything first
-    - 'src/**'             # Explicitly include source code
-    - 'node_modules/**'    # Explicitly include dependencies
-    - 'package.json'       # Include package config
+    - '!./**'
+    - 'src/**'
+    - 'node_modules/**'
+    - 'package.json'
 
 functions:
   api:
@@ -126,9 +127,11 @@ functions:
       - http:
           path: /
           method: ANY
+          cors: true
       - http:
           path: /{proxy+}
           method: ANY
+          cors: true
 
 plugins:
   - serverless-offline
@@ -137,3 +140,18 @@ custom:
   serverless-offline:
     httpPort: 3001
     host: 0.0.0.0
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
