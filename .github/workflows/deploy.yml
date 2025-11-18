@@ -34,19 +34,3 @@ jobs:
     
     - name: Deploy to AWS Lambda
       run: serverless deploy --stage production --region ap-south-1
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
