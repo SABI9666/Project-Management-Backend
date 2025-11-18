@@ -1,4 +1,4 @@
-// src/api/auth.js - Authentication API (COMPLETELY FIXED VERSION)
+// src/api/auth.js - Authentication API (COMPLETE FINAL VERSION)
 const express = require('express');
 const { 
     generateToken, 
@@ -97,13 +97,15 @@ router.post('/register', async (req, res) => {
         console.log('3️⃣ Saving user to DynamoDB...');
 
         // 4. Create user in DynamoDB
-        // CRITICAL FIX: Using 'userId' to match DynamoDB schema (not 'uid')
+        // CRITICAL FIX: Use Cognito's actual UUID as primary key
         const timestamp = Date.now();
-        const userId = cognitoUser.uid || email.toLowerCase().replace('@', '_').replace('.', '_');
+        const userId = cognitoUser.uid; // Use actual Cognito UUID
+        
+        console.log(`🔑 Using userId: ${userId}`);
         
         const userData = {
-            userId: userId,              // ✅ FIXED: Primary key is 'userId' not 'uid'
-            uid: userId,                 // Keep uid for backwards compatibility
+            userId: userId,              // ✅ PRIMARY KEY - Cognito UUID
+            uid: userId,                 // Backwards compatibility
             email: email.toLowerCase(),
             name: name,
             role: role,
@@ -114,6 +116,8 @@ router.post('/register', async (req, res) => {
             activeProjects: 0,
             assignedProjects: 0
         };
+        
+        console.log('📝 Saving to DynamoDB with data:', JSON.stringify(userData, null, 2));
         
         await putItem(process.env.USERS_TABLE, userData);
         console.log('✅ User saved to DynamoDB');
@@ -170,7 +174,7 @@ router.post('/register', async (req, res) => {
 });
 
 // ============================================
-// POST /api/auth/login - User login (COMPLETELY FIXED)
+// POST /api/auth/login - User login
 // ============================================
 router.post('/login', async (req, res) => {
     console.log('🔐 Starting Login Process...');
@@ -443,23 +447,3 @@ router.post('/change-password', async (req, res) => {
 });
 
 module.exports = router;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
