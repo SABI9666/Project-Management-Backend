@@ -105,7 +105,7 @@ router.post('/register', async (req, res) => {
         
         const userData = {
             userId: userId,              // ✅ PARTITION KEY (required)
-            "(none)": "",                // ✅ SORT KEY (required - empty string)
+            "(none)": "user",                // ✅ SORT KEY (required - empty string)
             uid: userId,                 // Backwards compatibility
             email: email.toLowerCase(),
             name: name,
