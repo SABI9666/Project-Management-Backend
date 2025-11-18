@@ -1,75 +1,130 @@
-// src/utils/cognito.js - AWS Cognito Helper Functions
+// src/utils/cognito.js - AWS Cognito Helper Functions (FIXED VERSION)
 const AWS = require('aws-sdk');
 const jwt = require('jsonwebtoken');
 
-// ================== REGION CONFIGURATION ==================
-// Ensure AWS SDK uses the correct region (Mumbai)
+// Configure AWS SDK with explicit region
 AWS.config.update({
     region: process.env.REGION || 'ap-south-1'
 });
 
-// Configure AWS SDK
 const cognito = new AWS.CognitoIdentityServiceProvider();
 
 const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID;
-// const CLIENT_ID = process.env.COGNITO_CLIENT_ID; // Not used in Admin calls
+const CLIENT_ID = process.env.COGNITO_CLIENT_ID;
 
 // ==========================================================
-// 1. CREATE USER
+// 1. CREATE USER IN COGNITO
 // ==========================================================
 const createUser = async (email, password, name, role) => {
     try {
         console.log(`👤 Creating Cognito user: ${email}`);
+        console.log(`📋 User Pool ID: ${USER_POOL_ID}`);
 
-        // ⚠️ CRITICAL FIX: Removed 'custom:role'
-        // We only send standard attributes (email, name) to avoid "Attribute does not exist" errors.
-        // The 'role' is stored in DynamoDB, which is sufficient.
-        const params = {
+        // Validate password meets Cognito requirements
+        if (!validatePassword(password)) {
+            throw new Error('Password must be at least 8 characters and contain uppercase, lowercase, number, and special character');
+        }
+
+        // Step 1: Create user with temporary password
+        const createParams = {
             UserPoolId: USER_POOL_ID,
             Username: email,
             TemporaryPassword: password,
             UserAttributes: [
                 { Name: 'email', Value: email },
-                { Name: 'email_verified', Value: 'true' }, // Auto-verify email
+                { Name: 'email_verified', Value: 'true' },
                 { Name: 'name', Value: name }
             ],
-            MessageAction: 'SUPPRESS' // Don't send default AWS invitation email
+            MessageAction: 'SUPPRESS' // Don't send AWS email
         };
         
-        // 1. Create the user
-        const result = await cognito.adminCreateUser(params).promise();
+        console.log('📝 Creating user in Cognito...');
+        const result = await cognito.adminCreateUser(createParams).promise();
+        console.log('✅ User created in Cognito');
         
-        // 2. Set the password as permanent (so they don't have to change it on first login)
+        // Step 2: Set permanent password
+        console.log('🔑 Setting permanent password...');
         await cognito.adminSetUserPassword({
             UserPoolId: USER_POOL_ID,
             Username: email,
             Password: password,
             Permanent: true
         }).promise();
+        console.log('✅ Password set as permanent');
         
-        console.log('✅ Cognito user created successfully');
-
         return {
             uid: result.User.Username,
             email: email,
             name: name,
-            role: role // We pass the role back so auth.js can save it to DynamoDB
+            role: role
         };
     } catch (error) {
         console.error('❌ Error creating Cognito user:', error);
-        // Provide a clearer error message for the frontend
+        
+        // Provide user-friendly error messages
         if (error.code === 'InvalidPasswordException') {
-            throw new Error('Password too weak. Use 8+ chars, uppercase, lowercase, number, & symbol.');
+            throw new Error('Password must be at least 8 characters with uppercase, lowercase, number, and special character (!@#$%^&*)');
         }
         if (error.code === 'UsernameExistsException') {
-            throw new Error('User already exists with this email.');
+            throw new Error('User already exists with this email');
         }
-        throw error;
+        if (error.code === 'InvalidParameterException') {
+            throw new Error('Invalid user parameters. Please check all fields.');
+        }
+        if (error.code === 'ResourceNotFoundException') {
+            throw new Error('Cognito User Pool not found. Please check configuration.');
+        }
+        
+        throw new Error(`Cognito error: ${error.message}`);
     }
 };
 
 // ==========================================================
-// 2. GET USER
+// 2. AUTHENTICATE USER (LOGIN)
+// ==========================================================
+const authenticateUser = async (email, password) => {
+    try {
+        console.log(`🔐 Authenticating user: ${email}`);
+        
+        const params = {
+            AuthFlow: 'ADMIN_NO_SRP_AUTH',
+            UserPoolId: USER_POOL_ID,
+            ClientId: CLIENT_ID,
+            AuthParameters: {
+                USERNAME: email,
+                PASSWORD: password
+            }
+        };
+        
+        const result = await cognito.adminInitiateAuth(params).promise();
+        
+        console.log('✅ Authentication successful');
+        
+        return {
+            success: true,
+            accessToken: result.AuthenticationResult.AccessToken,
+            idToken: result.AuthenticationResult.IdToken,
+            refreshToken: result.AuthenticationResult.RefreshToken
+        };
+    } catch (error) {
+        console.error('❌ Authentication error:', error);
+        
+        if (error.code === 'NotAuthorizedException') {
+            throw new Error('Invalid email or password');
+        }
+        if (error.code === 'UserNotFoundException') {
+            throw new Error('User not found');
+        }
+        if (error.code === 'UserNotConfirmedException') {
+            throw new Error('User account is not confirmed');
+        }
+        
+        throw new Error(`Authentication failed: ${error.message}`);
+    }
+};
+
+// ==========================================================
+// 3. GET USER FROM COGNITO
 // ==========================================================
 const getUser = async (username) => {
     try {
@@ -92,8 +147,6 @@ const getUser = async (username) => {
             uid: result.Username,
             email: attributes.email,
             name: attributes.name,
-            // Fallback for role if not in Cognito (it will be fetched from DynamoDB usually)
-            role: attributes['custom:role'] || 'user', 
             status: result.UserStatus,
             enabled: result.Enabled,
             created: result.UserCreateDate,
@@ -109,19 +162,21 @@ const getUser = async (username) => {
 };
 
 // ==========================================================
-// 3. UPDATE USER
+// 4. UPDATE USER ATTRIBUTES
 // ==========================================================
 const updateUser = async (username, attributes) => {
     try {
-        // Filter out custom attributes that might not exist in Schema
         const userAttributes = [];
         
         if (attributes.email) userAttributes.push({ Name: 'email', Value: attributes.email });
         if (attributes.name) userAttributes.push({ Name: 'name', Value: attributes.name });
-        if (attributes.email_verified) userAttributes.push({ Name: 'email_verified', Value: String(attributes.email_verified) });
+        if (attributes.email_verified !== undefined) {
+            userAttributes.push({ Name: 'email_verified', Value: String(attributes.email_verified) });
+        }
 
-        // Only add custom:role if you are SURE it exists in your Schema
-        // if (attributes.role) userAttributes.push({ Name: 'custom:role', Value: attributes.role });
+        if (userAttributes.length === 0) {
+            return true;
+        }
 
         const params = {
             UserPoolId: USER_POOL_ID,
@@ -138,7 +193,7 @@ const updateUser = async (username, attributes) => {
 };
 
 // ==========================================================
-// 4. DELETE USER
+// 5. DELETE USER
 // ==========================================================
 const deleteUser = async (username) => {
     try {
@@ -156,14 +211,62 @@ const deleteUser = async (username) => {
 };
 
 // ==========================================================
-// 5. UTILITIES (JWT)
+// 6. CHANGE PASSWORD
+// ==========================================================
+const changePassword = async (username, newPassword) => {
+    try {
+        if (!validatePassword(newPassword)) {
+            throw new Error('Password must be at least 8 characters with uppercase, lowercase, number, and special character');
+        }
+
+        const params = {
+            UserPoolId: USER_POOL_ID,
+            Username: username,
+            Password: newPassword,
+            Permanent: true
+        };
+        
+        await cognito.adminSetUserPassword(params).promise();
+        return true;
+    } catch (error) {
+        console.error('Error changing password:', error);
+        throw error;
+    }
+};
+
+// ==========================================================
+// 7. PASSWORD VALIDATION
+// ==========================================================
+const validatePassword = (password) => {
+    // Cognito default password policy:
+    // - At least 8 characters
+    // - Contains uppercase
+    // - Contains lowercase
+    // - Contains number
+    // - Contains special character
+    
+    if (!password || password.length < 8) return false;
+    
+    const hasUpperCase = /[A-Z]/.test(password);
+    const hasLowerCase = /[a-z]/.test(password);
+    const hasNumber = /[0-9]/.test(password);
+    const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
+    
+    return hasUpperCase && hasLowerCase && hasNumber && hasSpecialChar;
+};
+
+// ==========================================================
+// 8. JWT TOKEN UTILITIES
 // ==========================================================
 const verifyToken = (token) => {
     try {
         if (!token) return null;
-        // Remove 'Bearer ' if present
+        
+        // Remove 'Bearer ' prefix if present
         const cleanToken = token.startsWith('Bearer ') ? token.slice(7) : token;
-        return jwt.verify(cleanToken, process.env.JWT_SECRET);
+        
+        const decoded = jwt.verify(cleanToken, process.env.JWT_SECRET);
+        return decoded;
     } catch (error) {
         console.error('Error verifying JWT token:', error.message);
         return null;
@@ -188,11 +291,17 @@ const generateToken = (user) => {
     }
 };
 
+// ==========================================================
+// EXPORTS
+// ==========================================================
 module.exports = {
     createUser,
+    authenticateUser,
     getUser,
     updateUser,
     deleteUser,
+    changePassword,
+    validatePassword,
     verifyToken,
     generateToken
 };
