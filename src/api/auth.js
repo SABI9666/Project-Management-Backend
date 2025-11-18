@@ -1,4 +1,4 @@
-// src/api/auth.js - Authentication API (FIXED VERSION)
+// src/api/auth.js - Authentication API (COMPLETELY FIXED VERSION)
 const express = require('express');
 const { 
     generateToken, 
@@ -51,15 +51,24 @@ router.post('/register', async (req, res) => {
 
         console.log(`1️⃣ Checking if user exists: ${email}`);
         
-        // 2. Check if user already exists in DynamoDB
-        const existingUsers = await queryByIndex(
-            process.env.USERS_TABLE,
-            'email-index',
-            {
-                expression: 'email = :email',
-                values: { ':email': email }
-            }
-        );
+        // 2. Check if user already exists in DynamoDB using email-index
+        let existingUsers = [];
+        try {
+            existingUsers = await queryByIndex(
+                process.env.USERS_TABLE,
+                'email-index',
+                {
+                    expression: 'email = :email',
+                    values: { ':email': email.toLowerCase() }
+                }
+            );
+        } catch (queryError) {
+            console.warn('⚠️ Email query failed (index might not exist):', queryError.message);
+            // Fallback: scan table to check for email
+            const { scanTable } = require('../utils/dynamodb');
+            const allUsers = await scanTable(process.env.USERS_TABLE);
+            existingUsers = allUsers.filter(u => u.email === email.toLowerCase());
+        }
         
         if (existingUsers.length > 0) {
             return res.status(400).json({
@@ -88,9 +97,13 @@ router.post('/register', async (req, res) => {
         console.log('3️⃣ Saving user to DynamoDB...');
 
         // 4. Create user in DynamoDB
+        // CRITICAL FIX: Using 'userId' to match DynamoDB schema (not 'uid')
         const timestamp = Date.now();
+        const userId = cognitoUser.uid || email.toLowerCase().replace('@', '_').replace('.', '_');
+        
         const userData = {
-            uid: cognitoUser.uid || `user-${timestamp}`,
+            userId: userId,              // ✅ FIXED: Primary key is 'userId' not 'uid'
+            uid: userId,                 // Keep uid for backwards compatibility
             email: email.toLowerCase(),
             name: name,
             role: role,
@@ -106,7 +119,13 @@ router.post('/register', async (req, res) => {
         console.log('✅ User saved to DynamoDB');
         
         // 5. Generate JWT token
-        const token = generateToken(userData);
+        const token = generateToken({
+            uid: userId,
+            userId: userId,
+            email: userData.email,
+            name: userData.name,
+            role: userData.role
+        });
         
         console.log('4️⃣ Sending Welcome Email...');
 
@@ -130,7 +149,8 @@ router.post('/register', async (req, res) => {
             success: true,
             message: 'User registered successfully',
             data: {
-                uid: userData.uid,
+                uid: userData.userId,
+                userId: userData.userId,
                 email: userData.email,
                 name: userData.name,
                 role: userData.role,
@@ -150,7 +170,7 @@ router.post('/register', async (req, res) => {
 });
 
 // ============================================
-// POST /api/auth/login - User login (FIXED)
+// POST /api/auth/login - User login (COMPLETELY FIXED)
 // ============================================
 router.post('/login', async (req, res) => {
     console.log('🔐 Starting Login Process...');
@@ -171,14 +191,23 @@ router.post('/login', async (req, res) => {
         console.log(`1️⃣ Looking up user in DynamoDB: ${email}`);
         
         // 2. Get user from DynamoDB
-        const users = await queryByIndex(
-            process.env.USERS_TABLE,
-            'email-index',
-            {
-                expression: 'email = :email',
-                values: { ':email': email.toLowerCase() }
-            }
-        );
+        let users = [];
+        try {
+            users = await queryByIndex(
+                process.env.USERS_TABLE,
+                'email-index',
+                {
+                    expression: 'email = :email',
+                    values: { ':email': email.toLowerCase() }
+                }
+            );
+        } catch (queryError) {
+            console.warn('⚠️ Email index query failed, using table scan:', queryError.message);
+            // Fallback: scan table
+            const { scanTable } = require('../utils/dynamodb');
+            const allUsers = await scanTable(process.env.USERS_TABLE);
+            users = allUsers.filter(u => u.email === email.toLowerCase());
+        }
         
         if (users.length === 0) {
             console.log('❌ User not found in DynamoDB');
@@ -190,7 +219,11 @@ router.post('/login', async (req, res) => {
         }
         
         const user = users[0];
-        console.log('✅ User found in DynamoDB:', { uid: user.uid, email: user.email, role: user.role });
+        console.log('✅ User found in DynamoDB:', { 
+            userId: user.userId || user.uid, 
+            email: user.email, 
+            role: user.role 
+        });
         
         // 3. Check if user account is active
         if (user.status !== 'active') {
@@ -221,18 +254,23 @@ router.post('/login', async (req, res) => {
         console.log('3️⃣ Generating JWT token...');
         
         // 5. Generate JWT token with user data
-        const token = generateToken(user);
+        const token = generateToken({
+            uid: user.userId || user.uid,
+            userId: user.userId || user.uid,
+            email: user.email,
+            name: user.name,
+            role: user.role
+        });
         
         // 6. Update last login timestamp
         try {
+            const primaryKey = user.userId ? { userId: user.userId } : { uid: user.uid };
             await updateItem(
                 process.env.USERS_TABLE,
-                { uid: user.uid },
+                primaryKey,
                 {
-                    expression: 'SET lastLogin = :timestamp, updatedAt = :timestamp',
-                    values: {
-                        ':timestamp': Date.now()
-                    }
+                    lastLogin: Date.now(),
+                    updatedAt: Date.now()
                 }
             );
         } catch (updateError) {
@@ -246,7 +284,8 @@ router.post('/login', async (req, res) => {
             success: true,
             message: 'Login successful',
             data: {
-                uid: user.uid,
+                uid: user.userId || user.uid,
+                userId: user.userId || user.uid,
                 email: user.email,
                 name: user.name,
                 role: user.role,
@@ -298,7 +337,9 @@ router.get('/me', async (req, res) => {
             });
         }
         
-        const user = await getItem(process.env.USERS_TABLE, { uid: decoded.uid });
+        // Try to get user by userId first, then uid
+        const userKey = decoded.userId ? { userId: decoded.userId } : { uid: decoded.uid };
+        const user = await getItem(process.env.USERS_TABLE, userKey);
         
         if (!user) {
             return res.status(404).json({
@@ -311,7 +352,8 @@ router.get('/me', async (req, res) => {
         return res.status(200).json({
             success: true,
             data: {
-                uid: user.uid,
+                uid: user.userId || user.uid,
+                userId: user.userId || user.uid,
                 email: user.email,
                 name: user.name,
                 role: user.role,
@@ -336,9 +378,6 @@ router.get('/me', async (req, res) => {
 // ============================================
 router.post('/logout', async (req, res) => {
     try {
-        // In a stateless JWT system, logout is handled client-side
-        // by removing the token. We just acknowledge the request.
-        
         return res.status(200).json({
             success: true,
             message: 'Logged out successfully'
@@ -404,6 +443,11 @@ router.post('/change-password', async (req, res) => {
 });
 
 module.exports = router;
+
+
+
+
+
 
 
 
