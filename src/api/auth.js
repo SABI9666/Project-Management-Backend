@@ -1,4 +1,4 @@
-// src/api/auth.js - Authentication API (COMPLETE FINAL VERSION)
+// src/api/auth.js - Authentication API (FINAL WORKING VERSION)
 const express = require('express');
 const { 
     generateToken, 
@@ -97,9 +97,9 @@ router.post('/register', async (req, res) => {
         console.log('3️⃣ Saving user to DynamoDB...');
 
         // 4. Create user in DynamoDB
-        // CRITICAL FIX: Use Cognito's actual UUID as primary key
+        // CRITICAL FIX: Use Cognito's actual UUID (from result.User.Username) as primary key
         const timestamp = Date.now();
-        const userId = cognitoUser.uid; // Use actual Cognito UUID
+        const userId = cognitoUser.uid; // This is the Cognito UUID
         
         console.log(`🔑 Using userId: ${userId}`);
         
