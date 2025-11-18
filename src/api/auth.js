@@ -1,9 +1,13 @@
-// src/api/auth.js - Authentication API (AWS Version)
+// src/api/auth.js - Authentication API (FIXED VERSION)
 const express = require('express');
-const bcrypt = require('bcryptjs');
-// Ensure these utils exist. If 'utils/cognito' is missing, this will fail.
-const { generateToken, createUser: createCognitoUser, getUser } = require('../utils/cognito');
-const { getItem, putItem, queryByIndex } = require('../utils/dynamodb');
+const { 
+    generateToken, 
+    createUser: createCognitoUser, 
+    authenticateUser,
+    getUser,
+    validatePassword 
+} = require('../utils/cognito');
+const { getItem, putItem, queryByIndex, updateItem } = require('../utils/dynamodb');
 const { sendNotificationEmail } = require('../utils/email');
 
 const router = express.Router();
@@ -13,6 +17,8 @@ const router = express.Router();
 // ============================================
 router.post('/register', async (req, res) => {
     console.log('®️ Starting Registration Process...');
+    console.log('📦 Request body:', JSON.stringify(req.body, null, 2));
+    
     try {
         const { email, password, name, role } = req.body;
         
@@ -20,7 +26,26 @@ router.post('/register', async (req, res) => {
         if (!email || !password || !name || !role) {
             return res.status(400).json({
                 success: false,
-                error: 'Missing required fields (email, password, name, role)'
+                error: 'Missing required fields',
+                message: 'Email, password, name, and role are required'
+            });
+        }
+
+        // Validate email format
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid email format'
+            });
+        }
+
+        // Validate password strength
+        if (!validatePassword(password)) {
+            return res.status(400).json({
+                success: false,
+                error: 'Password too weak',
+                message: 'Password must be at least 8 characters and include uppercase, lowercase, number, and special character (!@#$%^&*)'
             });
         }
 
@@ -39,51 +64,53 @@ router.post('/register', async (req, res) => {
         if (existingUsers.length > 0) {
             return res.status(400).json({
                 success: false,
-                error: 'User already exists with this email'
+                error: 'User already exists',
+                message: 'A user with this email already exists'
             });
         }
         
         console.log('2️⃣ Creating user in Cognito...');
         
         // 3. Create user in Cognito
-        // If this fails, it is usually due to Password Policy (requires Upper, Lower, Number, Symbol)
         let cognitoUser;
         try {
             cognitoUser = await createCognitoUser(email, password, name, role);
+            console.log('✅ Cognito user created:', cognitoUser);
         } catch (cognitoError) {
             console.error('❌ Cognito Creation Failed:', cognitoError);
             return res.status(400).json({
                 success: false,
-                error: 'Cognito Creation Failed',
-                message: cognitoError.message // Returns specific password policy errors
+                error: 'User creation failed',
+                message: cognitoError.message
             });
         }
         
         console.log('3️⃣ Saving user to DynamoDB...');
 
         // 4. Create user in DynamoDB
+        const timestamp = Date.now();
         const userData = {
-            uid: cognitoUser.uid || cognitoUser.UserSub || 'temp-uid-' + Date.now(), // Fallback if uid missing
-            email: email,
+            uid: cognitoUser.uid || `user-${timestamp}`,
+            email: email.toLowerCase(),
             name: name,
             role: role,
             status: 'active',
             department: '',
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
+            createdAt: timestamp,
+            updatedAt: timestamp,
             activeProjects: 0,
             assignedProjects: 0
         };
         
         await putItem(process.env.USERS_TABLE, userData);
+        console.log('✅ User saved to DynamoDB');
         
         // 5. Generate JWT token
         const token = generateToken(userData);
         
         console.log('4️⃣ Sending Welcome Email...');
 
-        // 6. Send welcome email (NON-BLOCKING)
-        // We wrap this in try/catch so registration doesn't fail if SES is in Sandbox mode
+        // 6. Send welcome email (non-blocking)
         try {
             await sendNotificationEmail([email], 'userCreated', {
                 name: name,
@@ -91,10 +118,10 @@ router.post('/register', async (req, res) => {
                 role: role,
                 password: password
             });
-            console.log('✅ Email sent successfully');
+            console.log('✅ Welcome email sent');
         } catch (emailError) {
-            console.warn('⚠️ Email failed to send (likely SES Sandbox issue):', emailError.message);
-            // Do not return error here, allow registration to complete
+            console.warn('⚠️ Email failed (SES Sandbox mode):', emailError.message);
+            // Don't fail registration if email fails
         }
         
         console.log('✅ Registration Complete');
@@ -106,15 +133,16 @@ router.post('/register', async (req, res) => {
                 uid: userData.uid,
                 email: userData.email,
                 name: userData.name,
-                role: userData.role
+                role: userData.role,
+                status: userData.status
             },
             token: token
         });
     } catch (error) {
-        console.error('❌ Critical Registration Error:', error);
+        console.error('❌ Registration Error:', error);
         return res.status(500).json({
             success: false,
-            error: 'Registration failed internal server error',
+            error: 'Registration failed',
             message: error.message,
             stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
         });
@@ -122,48 +150,97 @@ router.post('/register', async (req, res) => {
 });
 
 // ============================================
-// POST /api/auth/login - User login
+// POST /api/auth/login - User login (FIXED)
 // ============================================
 router.post('/login', async (req, res) => {
+    console.log('🔐 Starting Login Process...');
+    console.log('📦 Request body:', JSON.stringify({ email: req.body.email, password: '***' }));
+    
     try {
         const { email, password } = req.body;
         
+        // 1. Validation
         if (!email || !password) {
             return res.status(400).json({
                 success: false,
-                error: 'Email and password are required'
+                error: 'Missing credentials',
+                message: 'Email and password are required'
             });
         }
         
-        // Get user from DynamoDB
+        console.log(`1️⃣ Looking up user in DynamoDB: ${email}`);
+        
+        // 2. Get user from DynamoDB
         const users = await queryByIndex(
             process.env.USERS_TABLE,
             'email-index',
             {
                 expression: 'email = :email',
-                values: { ':email': email }
+                values: { ':email': email.toLowerCase() }
             }
         );
         
         if (users.length === 0) {
+            console.log('❌ User not found in DynamoDB');
             return res.status(401).json({
                 success: false,
-                error: 'Invalid credentials'
+                error: 'Invalid credentials',
+                message: 'Email or password is incorrect'
             });
         }
         
         const user = users[0];
+        console.log('✅ User found in DynamoDB:', { uid: user.uid, email: user.email, role: user.role });
         
+        // 3. Check if user account is active
         if (user.status !== 'active') {
+            console.log('❌ User account is not active');
             return res.status(403).json({
                 success: false,
-                error: 'Account is not active'
+                error: 'Account inactive',
+                message: 'Your account is not active. Please contact administrator.'
             });
         }
         
-        // Note: Add Cognito Verify Password Logic here if needed
+        console.log('2️⃣ Authenticating with Cognito...');
         
+        // 4. Authenticate with Cognito
+        let cognitoAuth;
+        try {
+            cognitoAuth = await authenticateUser(email, password);
+            console.log('✅ Cognito authentication successful');
+        } catch (authError) {
+            console.error('❌ Cognito authentication failed:', authError.message);
+            return res.status(401).json({
+                success: false,
+                error: 'Invalid credentials',
+                message: 'Email or password is incorrect'
+            });
+        }
+        
+        console.log('3️⃣ Generating JWT token...');
+        
+        // 5. Generate JWT token with user data
         const token = generateToken(user);
+        
+        // 6. Update last login timestamp
+        try {
+            await updateItem(
+                process.env.USERS_TABLE,
+                { uid: user.uid },
+                {
+                    expression: 'SET lastLogin = :timestamp, updatedAt = :timestamp',
+                    values: {
+                        ':timestamp': Date.now()
+                    }
+                }
+            );
+        } catch (updateError) {
+            console.warn('⚠️ Failed to update last login:', updateError.message);
+            // Don't fail login if this update fails
+        }
+        
+        console.log('✅ Login successful');
         
         return res.status(200).json({
             success: true,
@@ -173,16 +250,23 @@ router.post('/login', async (req, res) => {
                 email: user.email,
                 name: user.name,
                 role: user.role,
-                department: user.department
+                department: user.department || '',
+                status: user.status
             },
-            token: token
+            token: token,
+            cognitoTokens: {
+                accessToken: cognitoAuth.accessToken,
+                idToken: cognitoAuth.idToken,
+                refreshToken: cognitoAuth.refreshToken
+            }
         });
     } catch (error) {
-        console.error('Login error:', error);
+        console.error('❌ Login Error:', error);
         return res.status(500).json({
             success: false,
             error: 'Login failed',
-            message: error.message
+            message: 'An error occurred during login. Please try again.',
+            details: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
 });
@@ -197,7 +281,8 @@ router.get('/me', async (req, res) => {
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
             return res.status(401).json({
                 success: false,
-                error: 'Unauthorized'
+                error: 'Unauthorized',
+                message: 'No authentication token provided'
             });
         }
         
@@ -208,7 +293,8 @@ router.get('/me', async (req, res) => {
         if (!decoded) {
             return res.status(401).json({
                 success: false,
-                error: 'Invalid token'
+                error: 'Invalid token',
+                message: 'Authentication token is invalid or expired'
             });
         }
         
@@ -217,7 +303,8 @@ router.get('/me', async (req, res) => {
         if (!user) {
             return res.status(404).json({
                 success: false,
-                error: 'User not found'
+                error: 'User not found',
+                message: 'User account not found'
             });
         }
         
@@ -228,17 +315,107 @@ router.get('/me', async (req, res) => {
                 email: user.email,
                 name: user.name,
                 role: user.role,
-                department: user.department,
-                status: user.status
+                department: user.department || '',
+                status: user.status,
+                activeProjects: user.activeProjects || 0,
+                assignedProjects: user.assignedProjects || 0
             }
         });
     } catch (error) {
         console.error('Get user error:', error);
         return res.status(500).json({
             success: false,
-            error: 'Failed to get user info'
+            error: 'Failed to get user info',
+            message: error.message
+        });
+    }
+});
+
+// ============================================
+// POST /api/auth/logout - User logout
+// ============================================
+router.post('/logout', async (req, res) => {
+    try {
+        // In a stateless JWT system, logout is handled client-side
+        // by removing the token. We just acknowledge the request.
+        
+        return res.status(200).json({
+            success: true,
+            message: 'Logged out successfully'
+        });
+    } catch (error) {
+        console.error('Logout error:', error);
+        return res.status(500).json({
+            success: false,
+            error: 'Logout failed',
+            message: error.message
+        });
+    }
+});
+
+// ============================================
+// POST /api/auth/change-password - Change password
+// ============================================
+router.post('/change-password', async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization;
+        
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return res.status(401).json({
+                success: false,
+                error: 'Unauthorized'
+            });
+        }
+        
+        const token = authHeader.split(' ')[1];
+        const { verifyToken, changePassword } = require('../utils/cognito');
+        const decoded = verifyToken(token);
+        
+        if (!decoded) {
+            return res.status(401).json({
+                success: false,
+                error: 'Invalid token'
+            });
+        }
+        
+        const { newPassword } = req.body;
+        
+        if (!newPassword) {
+            return res.status(400).json({
+                success: false,
+                error: 'New password is required'
+            });
+        }
+        
+        await changePassword(decoded.email, newPassword);
+        
+        return res.status(200).json({
+            success: true,
+            message: 'Password changed successfully'
+        });
+    } catch (error) {
+        console.error('Change password error:', error);
+        return res.status(500).json({
+            success: false,
+            error: 'Failed to change password',
+            message: error.message
         });
     }
 });
 
 module.exports = router;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
