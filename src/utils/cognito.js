@@ -1,6 +1,7 @@
-// src/utils/cognito.js - AWS Cognito Helper Functions (COMPLETE FIXED VERSION)
+// src/utils/cognito.js - AWS Cognito Helper Functions (COMPLETE WITH SECRET_HASH SUPPORT)
 const AWS = require('aws-sdk');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 
 // Configure AWS SDK with explicit region
 AWS.config.update({
@@ -11,6 +12,22 @@ const cognito = new AWS.CognitoIdentityServiceProvider();
 
 const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID;
 const CLIENT_ID = process.env.COGNITO_CLIENT_ID;
+const CLIENT_SECRET = process.env.COGNITO_CLIENT_SECRET; // Add this to your .env file
+
+// ==========================================================
+// HELPER: CALCULATE SECRET_HASH (REQUIRED FOR CLIENT SECRET)
+// ==========================================================
+const calculateSecretHash = (username, clientId, clientSecret) => {
+    if (!clientSecret) {
+        // If no client secret, return undefined (for app clients without secret)
+        return undefined;
+    }
+    
+    return crypto
+        .createHmac('SHA256', clientSecret)
+        .update(username + clientId)
+        .digest('base64');
+};
 
 // ==========================================================
 // 1. CREATE USER IN COGNITO
@@ -80,20 +97,31 @@ const createUser = async (email, password, name, role) => {
 };
 
 // ==========================================================
-// 2. AUTHENTICATE USER (LOGIN)
+// 2. AUTHENTICATE USER (LOGIN) - WITH SECRET_HASH SUPPORT
 // ==========================================================
 const authenticateUser = async (email, password) => {
     try {
         console.log(`🔐 Authenticating user: ${email}`);
         
+        // Calculate SECRET_HASH if client secret exists
+        const secretHash = calculateSecretHash(email, CLIENT_ID, CLIENT_SECRET);
+        
+        const authParameters = {
+            USERNAME: email,
+            PASSWORD: password
+        };
+        
+        // Add SECRET_HASH if it exists
+        if (secretHash) {
+            authParameters.SECRET_HASH = secretHash;
+            console.log('🔑 Using SECRET_HASH for authentication');
+        }
+        
         const params = {
             AuthFlow: 'ADMIN_NO_SRP_AUTH',
             UserPoolId: USER_POOL_ID,
             ClientId: CLIENT_ID,
-            AuthParameters: {
-                USERNAME: email,
-                PASSWORD: password
-            }
+            AuthParameters: authParameters
         };
         
         const result = await cognito.adminInitiateAuth(params).promise();
@@ -193,7 +221,7 @@ const updateUser = async (username, attributes) => {
 };
 
 // ==========================================================
-// 5. SET USER STATUS (ENABLE/DISABLE) - THIS WAS MISSING!
+// 5. SET USER STATUS (ENABLE/DISABLE)
 // ==========================================================
 const setUserStatus = async (username, enabled) => {
     try {
@@ -285,7 +313,47 @@ const changePassword = async (username, newPassword) => {
 };
 
 // ==========================================================
-// 9. PASSWORD VALIDATION
+// 9. REFRESH TOKEN - WITH SECRET_HASH SUPPORT
+// ==========================================================
+const refreshToken = async (email, refreshTokenValue) => {
+    try {
+        console.log(`🔄 Refreshing token for: ${email}`);
+        
+        // Calculate SECRET_HASH if client secret exists
+        const secretHash = calculateSecretHash(email, CLIENT_ID, CLIENT_SECRET);
+        
+        const authParameters = {
+            REFRESH_TOKEN: refreshTokenValue
+        };
+        
+        // Add SECRET_HASH if it exists
+        if (secretHash) {
+            authParameters.SECRET_HASH = secretHash;
+        }
+        
+        const params = {
+            AuthFlow: 'REFRESH_TOKEN_AUTH',
+            ClientId: CLIENT_ID,
+            AuthParameters: authParameters
+        };
+        
+        const result = await cognito.initiateAuth(params).promise();
+        
+        console.log('✅ Token refreshed successfully');
+        
+        return {
+            success: true,
+            accessToken: result.AuthenticationResult.AccessToken,
+            idToken: result.AuthenticationResult.IdToken
+        };
+    } catch (error) {
+        console.error('❌ Token refresh error:', error);
+        throw new Error(`Token refresh failed: ${error.message}`);
+    }
+};
+
+// ==========================================================
+// 10. PASSWORD VALIDATION
 // ==========================================================
 const validatePassword = (password) => {
     // Cognito default password policy:
@@ -306,7 +374,7 @@ const validatePassword = (password) => {
 };
 
 // ==========================================================
-// 10. JWT TOKEN UTILITIES
+// 11. JWT TOKEN UTILITIES
 // ==========================================================
 const verifyToken = (token) => {
     try {
@@ -342,6 +410,37 @@ const generateToken = (user) => {
 };
 
 // ==========================================================
+// 12. VERIFY COGNITO ACCESS TOKEN
+// ==========================================================
+const verifyCognitoToken = async (accessToken) => {
+    try {
+        const params = {
+            AccessToken: accessToken
+        };
+        
+        const result = await cognito.getUser(params).promise();
+        
+        // Parse user attributes
+        const attributes = {};
+        if (result.UserAttributes) {
+            result.UserAttributes.forEach(attr => {
+                attributes[attr.Name] = attr.Value;
+            });
+        }
+        
+        return {
+            username: result.Username,
+            email: attributes.email,
+            name: attributes.name,
+            email_verified: attributes.email_verified === 'true'
+        };
+    } catch (error) {
+        console.error('Error verifying Cognito token:', error);
+        throw new Error('Invalid or expired token');
+    }
+};
+
+// ==========================================================
 // EXPORTS
 // ==========================================================
 module.exports = {
@@ -349,31 +448,14 @@ module.exports = {
     authenticateUser,
     getUser,
     updateUser,
-    setUserStatus,      // ✅ NOW EXPORTED
-    listUsersByRole,    // ✅ NOW EXPORTED
+    setUserStatus,
+    listUsersByRole,
     deleteUser,
     changePassword,
+    refreshToken,           // ✅ NEW: Refresh token with SECRET_HASH
     validatePassword,
     verifyToken,
-    generateToken
+    generateToken,
+    verifyCognitoToken,     // ✅ NEW: Verify Cognito access token
+    calculateSecretHash     // ✅ NEW: Export for external use if needed
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
