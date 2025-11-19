@@ -459,3 +459,13 @@ module.exports = {
     verifyCognitoToken,     // ✅ NEW: Verify Cognito access token
     calculateSecretHash     // ✅ NEW: Export for external use if needed
 };
+
+
+
+
+
+
+
+
+
+
