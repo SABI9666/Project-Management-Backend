@@ -26,7 +26,7 @@ router.get('/', async (req, res) => {
 
         // Get single proposal
         if (id) {
-            const proposal = await getItem(process.env.PROPOSALS_TABLE, { proposalId: id });
+            const proposal = await getItem(process.env.PROPOSALS_TABLE, { id: id });
             
             if (!proposal) {
                 return res.status(404).json({
@@ -136,8 +136,7 @@ router.post('/', async (req, res) => {
 
         const proposalId = generateId();
         const proposalData = {
-            proposalId: proposalId, // DynamoDB partition key
-            id: proposalId, // For frontend compatibility
+            id: proposalId, // DynamoDB partition key
             projectName,
             clientCompany,
             clientContact: clientContact || '',
@@ -203,7 +202,7 @@ router.put('/:id', async (req, res) => {
         const updates = req.body;
 
         // Get existing proposal
-        const proposal = await getItem(process.env.PROPOSALS_TABLE, { proposalId: id });
+        const proposal = await getItem(process.env.PROPOSALS_TABLE, { id: id });
         
         if (!proposal) {
             return res.status(404).json({
@@ -227,7 +226,7 @@ router.put('/:id', async (req, res) => {
 
         // Update the proposal
         updates.updatedAt = timestamp();
-        const updated = await updateItem(process.env.PROPOSALS_TABLE, { proposalId: id }, updates);
+        const updated = await updateItem(process.env.PROPOSALS_TABLE, { id: id }, updates);
 
         return res.status(200).json({
             success: true,
@@ -251,7 +250,7 @@ router.delete('/:id', async (req, res) => {
         const { id } = req.params;
 
         // Get existing proposal
-        const proposal = await getItem(process.env.PROPOSALS_TABLE, { proposalId: id });
+        const proposal = await getItem(process.env.PROPOSALS_TABLE, { id: id });
         
         if (!proposal) {
             return res.status(404).json({
@@ -273,7 +272,7 @@ router.delete('/:id', async (req, res) => {
             });
         }
 
-        await deleteItem(process.env.PROPOSALS_TABLE, { proposalId: id });
+        await deleteItem(process.env.PROPOSALS_TABLE, { id: id });
 
         return res.status(200).json({
             success: true,
@@ -290,3 +289,21 @@ router.delete('/:id', async (req, res) => {
 });
 
 module.exports = router;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
