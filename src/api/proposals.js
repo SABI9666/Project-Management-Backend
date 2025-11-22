@@ -126,11 +126,11 @@ router.post('/', async (req, res) => {
             specialRequirements
         } = req.body;
 
-        // Validate required fields
-        if (!projectName || !clientCompany || !estimatedValue) {
+        // Validate required fields (estimatedValue is now optional)
+        if (!projectName || !clientCompany) {
             return res.status(400).json({
                 success: false,
-                error: 'Project name, client company, and estimated value are required'
+                error: 'Project name and client company are required'
             });
         }
 
@@ -143,7 +143,7 @@ router.post('/', async (req, res) => {
             clientEmail: clientEmail || '',
             clientPhone: clientPhone || '',
             projectDescription: projectDescription || '',
-            estimatedValue: parseFloat(estimatedValue),
+            estimatedValue: estimatedValue ? parseFloat(estimatedValue) : 0, // Default to 0 if not provided
             currency: currency || 'USD',
             proposedTimeline: proposedTimeline || '',
             deliverables: deliverables || [],
