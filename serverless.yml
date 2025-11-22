@@ -32,11 +32,7 @@ provider:
     # S3 Bucket
     S3_BUCKET: pmtracker-files-mumbai-2024
     
-    # ============================================
-    # FIXED: Corrected Cognito User Pool ID
-    # Changed from: ap-south-1_LmI71occJ (wrong)
-    # Changed to:   ap-south-1_Lml71occJ (correct)
-    # ============================================
+    # Cognito
     COGNITO_USER_POOL_ID: ap-south-1_Lml71occJ
     COGNITO_CLIENT_ID: 14dfm0u9q797qopu66qk1uejde
     
@@ -53,7 +49,10 @@ provider:
   iam:
     role:
       statements:
-        # DynamoDB permissions
+        # ============================================
+        # FIXED: DynamoDB permissions for ALL tables
+        # Including both PMTracker-* and PMTracker*
+        # ============================================
         - Effect: Allow
           Action:
             - dynamodb:Query
@@ -65,8 +64,12 @@ provider:
             - dynamodb:BatchWriteItem
             - dynamodb:BatchGetItem
           Resource:
+            # Tables with hyphen (PMTracker-*)
             - arn:aws:dynamodb:${self:provider.region}:*:table/PMTracker-*
             - arn:aws:dynamodb:${self:provider.region}:*:table/PMTracker-*/index/*
+            # Tables without hyphen (PMTracker*)
+            - arn:aws:dynamodb:${self:provider.region}:*:table/PMTracker*
+            - arn:aws:dynamodb:${self:provider.region}:*:table/PMTracker*/index/*
         
         # S3 permissions
         - Effect: Allow
@@ -143,8 +146,6 @@ custom:
   serverless-offline:
     httpPort: 3001
     host: 0.0.0.0
-
-
 
 
 
