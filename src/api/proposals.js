@@ -1,15 +1,13 @@
-// src/api/proposals.js - Proposals API with AWS DynamoDB (FIXED - Schema Matching)
+// src/api/proposals.js - Proposals API (Self-Contained Fix)
 const express = require('express');
+const crypto = require('crypto'); // Native Node.js module for robust ID generation
 const { verifyToken } = require('../middleware/auth.js');
 const { 
     getItem, 
     putItem, 
     updateItem, 
     deleteItem, 
-    queryByIndex, 
-    scanTable,
-    generateId,
-    timestamp 
+    scanTable
 } = require('../utils/dynamodb');
 
 const router = express.Router();
@@ -17,8 +15,11 @@ const router = express.Router();
 // Apply authentication middleware
 router.use(verifyToken);
 
+// Helper for robust timestamp (Numbers for DynamoDB)
+const getTimestamp = () => Date.now();
+
 // ============================================
-// GET /api/proposals - List proposals (FIXED)
+// GET /api/proposals - List proposals
 // ============================================
 router.get('/', async (req, res) => {
     try {
@@ -26,8 +27,13 @@ router.get('/', async (req, res) => {
 
         // Get single proposal
         if (id) {
-            // FIXED: Table expects 'proposalId' as the key, not 'id'
-            const proposal = await getItem(process.env.PROPOSALS_TABLE, { proposalId: id });
+            // Try fetching by proposalId (likely PK)
+            let proposal = await getItem(process.env.PROPOSALS_TABLE, { proposalId: id });
+            
+            // Fallback: Try fetching by id if first attempt failed
+            if (!proposal) {
+                proposal = await getItem(process.env.PROPOSALS_TABLE, { id: id });
+            }
             
             if (!proposal) {
                 return res.status(404).json({
@@ -41,7 +47,7 @@ router.get('/', async (req, res) => {
                 req.user.role === 'coo' ||
                 req.user.role === 'director' ||
                 req.user.role === 'estimator' ||
-                req.user.role === 'bdm' || // Added BDM
+                req.user.role === 'bdm' ||
                 proposal.submittedByUid === req.user.uid;
 
             if (!canView) {
@@ -60,20 +66,14 @@ router.get('/', async (req, res) => {
         // List all proposals
         let proposals = [];
 
-        // ============================================
-        // FIXED: Use scanTable instead of queryByIndex
-        // This works even without DynamoDB GSI
-        // ============================================
         if (req.user.role === 'coo' || req.user.role === 'director' || req.user.role === 'estimator') {
             // Admin users can see all proposals
             proposals = await scanTable(process.env.PROPOSALS_TABLE);
         } else if (req.user.role === 'bdm') {
             // BDM can only see their own proposals
-            // FIXED: Scan and filter instead of using index
             const allProposals = await scanTable(process.env.PROPOSALS_TABLE);
             proposals = allProposals.filter(p => p.submittedByUid === req.user.uid);
         } else {
-            // Other roles get empty list
             proposals = [];
         }
 
@@ -100,7 +100,7 @@ router.get('/', async (req, res) => {
 });
 
 // ============================================
-// POST /api/proposals - Create new proposal
+// POST /api/proposals - Create new proposal (FIXED)
 // ============================================
 router.post('/', async (req, res) => {
     try {
@@ -135,21 +135,27 @@ router.post('/', async (req, res) => {
             });
         }
 
-        // Generate ID
-        const newId = generateId(); 
+        // Generate robust ID and Timestamp locally
+        const newId = crypto.randomUUID(); 
+        const now = getTimestamp();
         
         const proposalData = {
-            // FIXED: DynamoDB Partition Key is 'proposalId' based on error message
+            // CRITICAL FIX: Include BOTH naming conventions to satisfy DynamoDB Schema
+            // regardless of whether Partition Key is 'id' or 'proposalId'
             proposalId: newId, 
-            id: newId, // Keep 'id' field for frontend compatibility
+            id: newId, 
             
+            // CRITICAL FIX: Include createdAt in case it's a Sort Key
+            createdAt: now,
+            updatedAt: now,
+
             projectName,
             clientCompany,
             clientContact: clientContact || '',
             clientEmail: clientEmail || '',
             clientPhone: clientPhone || '',
             projectDescription: projectDescription || '',
-            estimatedValue: estimatedValue ? parseFloat(estimatedValue) : 0, // Default to 0 if not provided
+            estimatedValue: estimatedValue ? parseFloat(estimatedValue) : 0,
             currency: currency || 'USD',
             proposedTimeline: proposedTimeline || '',
             deliverables: deliverables || [],
@@ -160,10 +166,10 @@ router.post('/', async (req, res) => {
             status: 'pending',
             
             // User tracking
-            submittedBy: req.user.name,
+            submittedBy: req.user.name || 'Unknown User',
             submittedByUid: req.user.uid,
             submittedByEmail: req.user.email,
-            submittedAt: timestamp(),
+            submittedAt: now,
             
             // Approval tracking
             reviewedBy: null,
@@ -176,12 +182,14 @@ router.post('/', async (req, res) => {
             assignedEstimatorUid: null,
             assignedEstimatorName: null,
             quoteValue: null,
-            quoteCurrency: null,
-            
-            // Timestamps
-            createdAt: timestamp(),
-            updatedAt: timestamp()
+            quoteCurrency: null
         };
+
+        console.log('Attempting to create proposal with keys:', { 
+            proposalId: proposalData.proposalId, 
+            id: proposalData.id,
+            createdAt: proposalData.createdAt 
+        });
 
         await putItem(process.env.PROPOSALS_TABLE, proposalData);
 
@@ -192,7 +200,6 @@ router.post('/', async (req, res) => {
 
     } catch (error) {
         console.error('Error in POST /proposals:', error);
-        // The error message from DynamoDB might be cryptic, so we log it and return a generic 500
         return res.status(500).json({
             success: false,
             error: `DB Error: ${error.message}`
@@ -208,8 +215,14 @@ router.put('/:id', async (req, res) => {
         const { id } = req.params;
         const updates = req.body;
 
-        // FIXED: Get existing proposal using proposalId
-        const proposal = await getItem(process.env.PROPOSALS_TABLE, { proposalId: id });
+        // Check if proposal exists (try both keys)
+        let proposal = await getItem(process.env.PROPOSALS_TABLE, { proposalId: id });
+        let keyObj = { proposalId: id };
+
+        if (!proposal) {
+            proposal = await getItem(process.env.PROPOSALS_TABLE, { id: id });
+            keyObj = { id: id };
+        }
         
         if (!proposal) {
             return res.status(404).json({
@@ -232,9 +245,14 @@ router.put('/:id', async (req, res) => {
         }
 
         // Update the proposal
-        updates.updatedAt = timestamp();
-        // FIXED: Update using proposalId as key
-        const updated = await updateItem(process.env.PROPOSALS_TABLE, { proposalId: id }, updates);
+        updates.updatedAt = getTimestamp();
+        
+        // Remove sensitive keys from updates if they exist
+        delete updates.id;
+        delete updates.proposalId;
+        delete updates.createdAt;
+
+        const updated = await updateItem(process.env.PROPOSALS_TABLE, keyObj, updates);
 
         return res.status(200).json({
             success: true,
@@ -257,8 +275,14 @@ router.delete('/:id', async (req, res) => {
     try {
         const { id } = req.params;
 
-        // FIXED: Get existing proposal using proposalId
-        const proposal = await getItem(process.env.PROPOSALS_TABLE, { proposalId: id });
+        // Get existing proposal
+        let proposal = await getItem(process.env.PROPOSALS_TABLE, { proposalId: id });
+        let keyObj = { proposalId: id };
+
+        if (!proposal) {
+            proposal = await getItem(process.env.PROPOSALS_TABLE, { id: id });
+            keyObj = { id: id };
+        }
         
         if (!proposal) {
             return res.status(404).json({
@@ -280,8 +304,7 @@ router.delete('/:id', async (req, res) => {
             });
         }
 
-        // FIXED: Delete using proposalId
-        await deleteItem(process.env.PROPOSALS_TABLE, { proposalId: id });
+        await deleteItem(process.env.PROPOSALS_TABLE, keyObj);
 
         return res.status(200).json({
             success: true,
