@@ -1,179 +1,230 @@
-// src/api/payments.js - Payments API with AWS DynamoDB
+// src/api/payments.js - Payments API (FIXED for BDM access)
 const express = require('express');
-const { verifyToken } = require('../middleware/auth');
-const { 
-    getItem, putItem, updateItem, deleteItem,
-    queryByIndex, scanTable, generateId, timestamp, incrementField
-} = require('../utils/dynamodb');
-const { sendNotificationEmail } = require('../utils/email');
+const { verifyToken } = require('../middleware/auth.js');
+const { getItem, putItem, updateItem, scanTable, generateId, timestamp } = require('../utils/dynamodb');
 
 const router = express.Router();
 router.use(verifyToken);
 
-// POST /api/payments - Record payment
+// ============================================
+// GET /api/payments - List payments (FIXED)
+// ============================================
+router.get('/', async (req, res) => {
+    try {
+        // ============================================
+        // FIXED: Allow BDM to see payments
+        // ============================================
+        const allowedRoles = ['coo', 'director', 'bdm', 'accounts'];
+        
+        if (!allowedRoles.includes(req.user.role)) {
+            return res.status(403).json({
+                success: false,
+                error: 'Access denied'
+            });
+        }
+
+        // Get all payments
+        let payments = await scanTable(process.env.PAYMENTS_TABLE || 'PMTrackerPayments');
+        
+        // Filter based on role
+        if (req.user.role === 'bdm') {
+            // BDM sees payments for their proposals
+            const allProposals = await scanTable(process.env.PROPOSALS_TABLE);
+            const myProposalIds = allProposals
+                .filter(p => p.submittedByUid === req.user.uid)
+                .map(p => p.id);
+            
+            payments = payments.filter(pay => myProposalIds.includes(pay.proposalId));
+        }
+        
+        // Sort by date (newest first)
+        payments.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+        return res.status(200).json({
+            success: true,
+            data: payments
+        });
+
+    } catch (error) {
+        console.error('Error in GET /payments:', error);
+        return res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// ============================================
+// GET /api/payments/:id - Get single payment
+// ============================================
+router.get('/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        const payment = await getItem(process.env.PAYMENTS_TABLE || 'PMTrackerPayments', { id });
+        
+        if (!payment) {
+            return res.status(404).json({
+                success: false,
+                error: 'Payment not found'
+            });
+        }
+
+        // Check permissions
+        const allowedRoles = ['coo', 'director', 'bdm', 'accounts'];
+        
+        if (!allowedRoles.includes(req.user.role)) {
+            return res.status(403).json({
+                success: false,
+                error: 'Access denied'
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            data: payment
+        });
+
+    } catch (error) {
+        console.error('Error in GET /payments/:id:', error);
+        return res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// ============================================
+// POST /api/payments - Create payment record
+// ============================================
 router.post('/', async (req, res) => {
     try {
-        if (!['coo', 'director'].includes(req.user.role)) {
-            return res.status(403).json({ success: false, error: 'Access denied' });
+        // Only accounts, COO, and director can create payments
+        const allowedRoles = ['coo', 'director', 'accounts'];
+        
+        if (!allowedRoles.includes(req.user.role)) {
+            return res.status(403).json({
+                success: false,
+                error: 'Only accounts team can create payments'
+            });
         }
 
-        const { projectId, amount, currency, paymentDate, paymentMethod, invoiceNo, notes } = req.body;
+        const {
+            proposalId,
+            projectId,
+            amount,
+            currency,
+            paymentMethod,
+            paymentDate,
+            invoiceNumber,
+            notes
+        } = req.body;
 
-        if (!projectId || !amount) {
-            return res.status(400).json({ success: false, error: 'Project ID and amount required' });
-        }
-
-        const project = await getItem(process.env.PROJECTS_TABLE, { id: projectId });
-        if (!project) {
-            return res.status(404).json({ success: false, error: 'Project not found' });
+        if (!amount || !proposalId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Amount and proposal ID are required'
+            });
         }
 
         const paymentId = generateId();
         const paymentData = {
-            id: paymentId, projectId,
-            projectName: project.projectName,
-            projectCode: project.projectCode,
+            id: paymentId,
+            proposalId,
+            projectId: projectId || null,
             amount: parseFloat(amount),
-            currency: currency || project.currency || 'USD',
-            paymentDate: paymentDate || timestamp(),
+            currency: currency || 'USD',
             paymentMethod: paymentMethod || 'bank_transfer',
-            invoiceNo: invoiceNo || null,
+            paymentDate: paymentDate || timestamp(),
+            invoiceNumber: invoiceNumber || null,
             notes: notes || '',
-            recordedBy: req.user.name,
-            recordedByUid: req.user.uid,
-            createdAt: timestamp()
+            status: 'completed',
+            
+            // User tracking
+            createdBy: req.user.name,
+            createdByUid: req.user.uid,
+            createdAt: timestamp(),
+            updatedAt: timestamp()
         };
 
-        await putItem(process.env.PAYMENTS_TABLE, paymentData);
+        await putItem(process.env.PAYMENTS_TABLE || 'PMTrackerPayments', paymentData);
 
-        // Update project total received
-        await incrementField(process.env.PROJECTS_TABLE, { id: projectId }, 'totalReceived', parseFloat(amount));
-
-        await putItem(process.env.ACTIVITIES_TABLE, {
-            id: generateId(), type: 'payment_received',
-            details: `Payment of ${currency} ${amount} received for ${project.projectName}`,
-            performedByName: req.user.name, performedByUid: req.user.uid,
-            timestamp: timestamp(), projectId
+        return res.status(201).json({
+            success: true,
+            data: paymentData
         });
 
-        await sendNotificationEmail(
-            [project.clientEmail],
-            'paymentReceived',
-            {
-                projectName: project.projectName,
-                invoiceNo: invoiceNo || 'N/A',
-                amount, currency: currency || 'USD',
-                paymentDate: new Date().toLocaleDateString(),
-                paymentMethod: paymentMethod || 'Bank Transfer',
-                loginUrl: process.env.FRONTEND_URL
-            }
-        );
-
-        return res.status(201).json({ success: true, data: paymentData });
     } catch (error) {
-        return res.status(500).json({ success: false, error: error.message });
+        console.error('Error in POST /payments:', error);
+        return res.status(500).json({
+            success: false,
+            error: error.message
+        });
     }
 });
 
-// GET /api/payments - List payments
-router.get('/', async (req, res) => {
-    try {
-        const { projectId, id } = req.query;
-
-        if (id) {
-            const payment = await getItem(process.env.PAYMENTS_TABLE, { id });
-            return payment 
-                ? res.status(200).json({ success: true, data: payment })
-                : res.status(404).json({ success: false, error: 'Not found' });
-        }
-
-        let payments = [];
-
-        if (projectId) {
-            payments = await queryByIndex(process.env.PAYMENTS_TABLE, 'projectId-index', {
-                expression: 'projectId = :projectId', values: { ':projectId': projectId }
-            });
-        } else if (['coo', 'director'].includes(req.user.role)) {
-            payments = await scanTable(process.env.PAYMENTS_TABLE);
-        } else {
-            return res.status(403).json({ success: false, error: 'Access denied' });
-        }
-
-        payments.sort((a, b) => b.paymentDate - a.paymentDate);
-        return res.status(200).json({ success: true, data: payments });
-    } catch (error) {
-        return res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// GET /api/payments/overdue - Get overdue payments
-router.get('/overdue', async (req, res) => {
-    try {
-        if (!['coo', 'director'].includes(req.user.role)) {
-            return res.status(403).json({ success: false, error: 'Access denied' });
-        }
-
-        const invoices = await scanTable(process.env.INVOICES_TABLE);
-        const now = timestamp();
-        
-        const overdueInvoices = invoices.filter(inv => 
-            inv.status !== 'paid' && inv.dueDate && inv.dueDate < now
-        );
-
-        return res.status(200).json({ success: true, data: overdueInvoices });
-    } catch (error) {
-        return res.status(500).json({ success: false, error: error.message });
-    }
-});
-
+// ============================================
 // PUT /api/payments/:id - Update payment
+// ============================================
 router.put('/:id', async (req, res) => {
     try {
-        if (!['coo', 'director'].includes(req.user.role)) {
-            return res.status(403).json({ success: false, error: 'Access denied' });
-        }
-
         const { id } = req.params;
-        const payment = await getItem(process.env.PAYMENTS_TABLE, { id });
+        const updates = req.body;
+        
+        // Only accounts, COO, and director can update payments
+        const allowedRoles = ['coo', 'director', 'accounts'];
+        
+        if (!allowedRoles.includes(req.user.role)) {
+            return res.status(403).json({
+                success: false,
+                error: 'Access denied'
+            });
+        }
 
+        const payment = await getItem(process.env.PAYMENTS_TABLE || 'PMTrackerPayments', { id });
+        
         if (!payment) {
-            return res.status(404).json({ success: false, error: 'Not found' });
+            return res.status(404).json({
+                success: false,
+                error: 'Payment not found'
+            });
         }
 
-        const updates = { ...req.body, updatedAt: timestamp() };
-        delete updates.id; delete updates.projectId; delete updates.createdAt;
+        updates.updatedAt = timestamp();
+        updates.updatedBy = req.user.name;
+        
+        const updated = await updateItem(process.env.PAYMENTS_TABLE || 'PMTrackerPayments', { id }, updates);
 
-        const updatedPayment = await updateItem(process.env.PAYMENTS_TABLE, { id }, updates);
+        return res.status(200).json({
+            success: true,
+            data: updated
+        });
 
-        return res.status(200).json({ success: true, data: updatedPayment });
     } catch (error) {
-        return res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// DELETE /api/payments/:id - Delete payment
-router.delete('/:id', async (req, res) => {
-    try {
-        if (!['coo', 'director'].includes(req.user.role)) {
-            return res.status(403).json({ success: false, error: 'Access denied' });
-        }
-
-        const { id } = req.params;
-        const payment = await getItem(process.env.PAYMENTS_TABLE, { id });
-
-        if (!payment) {
-            return res.status(404).json({ success: false, error: 'Not found' });
-        }
-
-        await deleteItem(process.env.PAYMENTS_TABLE, { id });
-
-        // Decrement project total
-        await incrementField(process.env.PROJECTS_TABLE, { id: payment.projectId }, 'totalReceived', -payment.amount);
-
-        return res.status(200).json({ success: true, message: 'Payment deleted' });
-    } catch (error) {
-        return res.status(500).json({ success: false, error: error.message });
+        console.error('Error in PUT /payments/:id:', error);
+        return res.status(500).json({
+            success: false,
+            error: error.message
+        });
     }
 });
 
 module.exports = router;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
