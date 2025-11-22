@@ -1,4 +1,4 @@
-// src/api/proposals.js - Proposals API with AWS DynamoDB (FIXED - No Index Required)
+// src/api/proposals.js - Proposals API with AWS DynamoDB (FIXED - Schema Matching)
 const express = require('express');
 const { verifyToken } = require('../middleware/auth.js');
 const { 
@@ -26,7 +26,8 @@ router.get('/', async (req, res) => {
 
         // Get single proposal
         if (id) {
-            const proposal = await getItem(process.env.PROPOSALS_TABLE, { id: id });
+            // FIXED: Table expects 'proposalId' as the key, not 'id'
+            const proposal = await getItem(process.env.PROPOSALS_TABLE, { proposalId: id });
             
             if (!proposal) {
                 return res.status(404).json({
@@ -126,7 +127,7 @@ router.post('/', async (req, res) => {
             specialRequirements
         } = req.body;
 
-        // Validate required fields (estimatedValue is now optional)
+        // Validate required fields
         if (!projectName || !clientCompany) {
             return res.status(400).json({
                 success: false,
@@ -134,9 +135,14 @@ router.post('/', async (req, res) => {
             });
         }
 
-        const proposalId = generateId();
+        // Generate ID
+        const newId = generateId(); 
+        
         const proposalData = {
-            id: proposalId, // DynamoDB partition key
+            // FIXED: DynamoDB Partition Key is 'proposalId' based on error message
+            proposalId: newId, 
+            id: newId, // Keep 'id' field for frontend compatibility
+            
             projectName,
             clientCompany,
             clientContact: clientContact || '',
@@ -186,9 +192,10 @@ router.post('/', async (req, res) => {
 
     } catch (error) {
         console.error('Error in POST /proposals:', error);
+        // The error message from DynamoDB might be cryptic, so we log it and return a generic 500
         return res.status(500).json({
             success: false,
-            error: error.message
+            error: `DB Error: ${error.message}`
         });
     }
 });
@@ -201,8 +208,8 @@ router.put('/:id', async (req, res) => {
         const { id } = req.params;
         const updates = req.body;
 
-        // Get existing proposal
-        const proposal = await getItem(process.env.PROPOSALS_TABLE, { id: id });
+        // FIXED: Get existing proposal using proposalId
+        const proposal = await getItem(process.env.PROPOSALS_TABLE, { proposalId: id });
         
         if (!proposal) {
             return res.status(404).json({
@@ -226,7 +233,8 @@ router.put('/:id', async (req, res) => {
 
         // Update the proposal
         updates.updatedAt = timestamp();
-        const updated = await updateItem(process.env.PROPOSALS_TABLE, { id: id }, updates);
+        // FIXED: Update using proposalId as key
+        const updated = await updateItem(process.env.PROPOSALS_TABLE, { proposalId: id }, updates);
 
         return res.status(200).json({
             success: true,
@@ -249,8 +257,8 @@ router.delete('/:id', async (req, res) => {
     try {
         const { id } = req.params;
 
-        // Get existing proposal
-        const proposal = await getItem(process.env.PROPOSALS_TABLE, { id: id });
+        // FIXED: Get existing proposal using proposalId
+        const proposal = await getItem(process.env.PROPOSALS_TABLE, { proposalId: id });
         
         if (!proposal) {
             return res.status(404).json({
@@ -272,7 +280,8 @@ router.delete('/:id', async (req, res) => {
             });
         }
 
-        await deleteItem(process.env.PROPOSALS_TABLE, { id: id });
+        // FIXED: Delete using proposalId
+        await deleteItem(process.env.PROPOSALS_TABLE, { proposalId: id });
 
         return res.status(200).json({
             success: true,
@@ -289,21 +298,3 @@ router.delete('/:id', async (req, res) => {
 });
 
 module.exports = router;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
